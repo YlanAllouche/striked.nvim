@@ -78,17 +78,30 @@ local function scan_file(path, cwd, items)
   end
 
   local relpath = relative_path(cwd, path)
+  local active_fence
 
   for lnum, line in ipairs(lines) do
-    local item = parser.parse_line(line, {
-      path = path,
-      relative_path = relpath,
-      lnum = lnum,
-      col = 1,
-    })
+    local fence = line:match("^%s*([`~][`~][`~]+)")
 
-    if item then
-      table.insert(items, item)
+    if fence then
+      local fence_char = fence:sub(1, 1)
+
+      if not active_fence then
+        active_fence = fence_char
+      elseif active_fence == fence_char then
+        active_fence = nil
+      end
+    elseif not active_fence then
+      local item = parser.parse_line(line, {
+        path = path,
+        relative_path = relpath,
+        lnum = lnum,
+        col = 1,
+      })
+
+      if item then
+        table.insert(items, item)
+      end
     end
   end
 end
