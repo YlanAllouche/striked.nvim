@@ -1,4 +1,5 @@
 local config = require("striked.config")
+local actions = require("striked.actions")
 local pickers = require("striked.pickers")
 local query = require("striked.query")
 local scanner = require("striked.scanner")
@@ -54,6 +55,9 @@ local function apply_mappings()
   set_mapping("n", mappings.tasks_n, function()
     M.pick_tasks_by_status("n")
   end, "Striked n tasks")
+  set_mapping("n", mappings.add_bookmark, function()
+    M.prompt_add_bookmark()
+  end, "Striked add bookmark")
 end
 
 local function register_commands()
@@ -94,6 +98,10 @@ local function register_commands()
     M.pick_tasks_by_status("n")
   end, {})
 
+  vim.api.nvim_create_user_command("StrikedAddBookmark", function()
+    M.prompt_add_bookmark()
+  end, {})
+
   runtime.commands_registered = true
 end
 
@@ -124,6 +132,18 @@ end
 
 function M.pick_tasks_by_status(status, opts)
   return pickers.pick_tasks_by_status(status, opts)
+end
+
+function M.find_similar_bookmarks(target, opts)
+  return query.find_similar_bookmarks(target, opts)
+end
+
+function M.add_bookmark(opts)
+  return actions.add_bookmark(opts)
+end
+
+function M.prompt_add_bookmark(opts)
+  return actions.prompt_add_bookmark(opts)
 end
 
 function M._bootstrap()

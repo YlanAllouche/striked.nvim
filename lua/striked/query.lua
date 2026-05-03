@@ -2,6 +2,63 @@ local scanner = require("striked.scanner")
 
 local M = {}
 
+local function trim(text)
+  return vim.trim(text or "")
+end
+
+local function normalize_url(url)
+  if not url or url == "" then
+    return nil
+  end
+
+  local value = trim(url):gsub("#.*$", "")
+  local scheme, remainder = value:match("^([%w+.-]+)://(.+)$")
+
+  if not scheme then
+    return value:gsub("/+$", "")
+  end
+
+  local host, suffix = remainder:match("^([^/%?#]+)(.*)$")
+  if not host then
+    return value:gsub("/+$", "")
+  end
+
+  return string.format("%s://%s%s", scheme:lower(), host:lower(), suffix):gsub("/+$", "")
+end
+
+local function hostname(url)
+  if not url or url == "" then
+    return nil
+  end
+
+  local host = url:match("^[%w+.-]+://([^/%?#]+)") or url:match("^([^/%?#]+)")
+  return host and host:lower() or nil
+end
+
+local function normalize_title(title)
+  return trim((title or ""):lower():gsub("[^%w%s]", " "):gsub("%s+", " "))
+end
+
+local function title_overlap(left, right)
+  local left_words = {}
+  local overlap = 0
+
+  for word in left:gmatch("%S+") do
+    if #word > 2 then
+      left_words[word] = true
+    end
+  end
+
+  for word in right:gmatch("%S+") do
+    if left_words[word] then
+      overlap = overlap + 1
+      left_words[word] = nil
+    end
+  end
+
+  return overlap
+end
+
 local function scan_items(opts)
   if opts and opts.items then
     return opts.items
@@ -25,6 +82,73 @@ end
 
 function M.bookmarks(opts)
   return M.tasks_by_status("@", opts)
+end
+
+function M.find_similar_bookmarks(target, opts)
+  local matches = {}
+  local target_url = normalize_url(target.url)
+  local target_host = hostname(target.url)
+  local target_title = normalize_title(target.title)
+
+  for _, item in ipairs(M.bookmarks(opts)) do
+    local reasons = {}
+    local score = 0
+    local item_url = normalize_url(item.url)
+    local item_host = hostname(item.url)
+    local item_title = normalize_title(item.title)
+
+    if target.url and item.url and trim(target.url) == trim(item.url) then
+      table.insert(reasons, "exact URL match")
+      score = score + 100
+    elseif target_url and item_url and target_url == item_url then
+      table.insert(reasons, "normalized URL match")
+      score = score + 90
+    end
+
+    if target_host and item_host and target_host == item_host then
+      table.insert(reasons, "same hostname")
+      score = score + 30
+    end
+
+    if target_title ~= "" and item_title ~= "" then
+      if target_title == item_title then
+        table.insert(reasons, "exact title match")
+        score = score + 25
+      elseif target_title:find(item_title, 1, true) or item_title:find(target_title, 1, true) then
+        table.insert(reasons, "title substring match")
+        score = score + 15
+      else
+        local overlap = title_overlap(target_title, item_title)
+        if overlap > 0 then
+          table.insert(reasons, string.format("shared title words (%d)", overlap))
+          score = score + math.min(overlap * 5, 20)
+        end
+      end
+    end
+
+    if score > 0 then
+      local match = vim.deepcopy(item)
+      match.similarity = {
+        score = score,
+        reasons = reasons,
+      }
+      table.insert(matches, match)
+    end
+  end
+
+  table.sort(matches, function(left, right)
+    if left.similarity.score ~= right.similarity.score then
+      return left.similarity.score > right.similarity.score
+    end
+
+    if left.path ~= right.path then
+      return left.path < right.path
+    end
+
+    return (left.lnum or 0) < (right.lnum or 0)
+  end)
+
+  return matches
 end
 
 return M

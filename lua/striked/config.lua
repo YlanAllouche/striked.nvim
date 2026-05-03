@@ -10,6 +10,10 @@ local defaults = {
     tasks_slash = "<leader>s/",
     tasks_question = "<leader>s?",
     tasks_n = "<leader>sn",
+    add_bookmark = "<leader>sa",
+  },
+  bookmark = {
+    default_position = "cursor",
   },
   picker = {
     telescope = {
