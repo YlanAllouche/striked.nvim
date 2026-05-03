@@ -1,0 +1,1 @@
+require("striked")._bootstrap()
