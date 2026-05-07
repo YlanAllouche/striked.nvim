@@ -98,7 +98,7 @@ local function telescope_deps()
   local ok_config, telescope_config = pcall(require, "telescope.config")
 
   if not (ok_pickers and ok_finders and ok_actions and ok_state and ok_config) then
-    error("striked.nvim requires Telescope for picker commands")
+    error("striked.nvim requires nvim-telescope/telescope.nvim for picker commands")
   end
 
   return {
