@@ -238,6 +238,14 @@ function M.pick_active_tasks(opts)
   }))
 end
 
+function M.pick_done_tasks(opts)
+  opts = opts or {}
+  return M.pick_items(query.done_tasks(opts), vim.tbl_extend("force", opts, {
+    kind = "task",
+    prompt_title = opts.prompt_title or "Striked Done Tasks",
+  }))
+end
+
 function M.pick_tasks_by_status(status, opts)
   opts = opts or {}
   return M.pick_items(query.tasks_by_status(status, opts), vim.tbl_extend("force", opts, {

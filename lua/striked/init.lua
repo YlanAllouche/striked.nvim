@@ -44,7 +44,7 @@ local function apply_mappings()
     M.pick_active_tasks()
   end, "Striked active tasks")
   set_mapping("n", mappings.tasks_done, function()
-    M.pick_tasks_by_status("x")
+    M.pick_done_tasks()
   end, "Striked done tasks")
   set_mapping("n", mappings.tasks_slash, function()
     M.pick_active_tasks()
@@ -86,7 +86,7 @@ local function register_commands()
   end, {
     nargs = 1,
     complete = function()
-      return { "@", " ", "x", "/", "?", "n" }
+      return { "@", " ", "x", "-", "l", "R", "/", "?", "n" }
     end,
   })
 
@@ -95,7 +95,7 @@ local function register_commands()
   end, {})
 
   vim.api.nvim_create_user_command("StrikedTasksDone", function()
-    M.pick_tasks_by_status("x")
+    M.pick_done_tasks()
   end, {})
 
   vim.api.nvim_create_user_command("StrikedTasksSlash", function()
@@ -198,6 +198,10 @@ function M.active_tasks(opts)
   return query.active_tasks(opts)
 end
 
+function M.done_tasks(opts)
+  return query.done_tasks(opts)
+end
+
 function M.items_by_field(field, value, opts)
   return query.items_by_field(field, value, opts)
 end
@@ -220,6 +224,10 @@ end
 
 function M.pick_active_tasks(opts)
   return pickers.pick_active_tasks(opts)
+end
+
+function M.pick_done_tasks(opts)
+  return pickers.pick_done_tasks(opts)
 end
 
 function M.pick_tasks_by_status(status, opts)

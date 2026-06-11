@@ -179,6 +179,8 @@ If sprint `startDate` or `endDate` is left empty in the prompt flow, it defaults
 
 `StrikedTasksOpen` and `StrikedTasksSlash` both open the combined active-task view for statuses ` ` and `/`.
 
+`StrikedTasksDone` opens the combined done-task view for statuses `x`, `-`, `l`, and `R`, with dated items shown first in reverse chronological order.
+
 ## Default Mappings
 
 - `<leader>sb` bookmarks
@@ -216,12 +218,14 @@ striked.bookmarks(opts)
 striked.tasks_by_status(" ", opts)
 striked.tasks_by_statuses({ " ", "/" }, opts)
 striked.active_tasks(opts)
+striked.done_tasks(opts)
 striked.items_by_field("focus", "true", opts)
 striked.focused(opts)
 striked.items_between_dates("2026-06-01", "2026-06-30", opts)
 striked.log_items("2026-06-01", "2026-06-30", opts)
 striked.pick_bookmarks(opts)
 striked.pick_active_tasks(opts)
+striked.pick_done_tasks(opts)
 striked.pick_focused(opts)
 striked.find_similar_bookmarks({ title = "Example", url = "https://example.com" }, opts)
 striked.add_bookmark({ title = "Example", url = "https://example.com" })
@@ -277,6 +281,7 @@ Then in Neovim:
 :lua require("striked").setup({ notes = { root = "/home/ylan/workspaces/repos/github/YlanAllouche/striked.nvim/markdown_test" } })
 :StrikedBookmarks
 :StrikedTasksSlash
+:StrikedTasksDone
 :StrikedFocused
 :StrikedJournalToday
 :StrikedLog

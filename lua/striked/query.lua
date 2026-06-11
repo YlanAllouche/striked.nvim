@@ -9,6 +9,7 @@ local field_aliases = {
   topic = { "topic", "topics" },
   topics = { "topic", "topics" },
 }
+local done_like_statuses = { "x", "-", "l", "R" }
 
 local function trim(text)
   return vim.trim(text or "")
@@ -138,6 +139,18 @@ local function date_values(item)
   return values
 end
 
+local function item_date(item)
+  for _, field in ipairs({ "completion", "date" }) do
+    for _, value in ipairs(metadata_values(item, field)) do
+      if dates.is_valid(value) then
+        return value
+      end
+    end
+  end
+
+  return nil
+end
+
 function M.filter_items(predicate, opts)
   local items = scan_items(opts)
   local matches = {}
@@ -173,6 +186,31 @@ function M.active_tasks(opts)
   return M.tasks_by_statuses({ "/", " " }, opts)
 end
 
+function M.done_tasks(opts)
+  local matches = M.tasks_by_statuses(done_like_statuses, opts)
+
+  table.sort(matches, function(left, right)
+    local left_date = item_date(left)
+    local right_date = item_date(right)
+
+    if left_date and right_date and left_date ~= right_date then
+      return dates.compare(left_date, right_date) > 0
+    end
+
+    if left_date ~= right_date then
+      return left_date ~= nil
+    end
+
+    if left.path ~= right.path then
+      return left.path < right.path
+    end
+
+    return (left.lnum or 0) < (right.lnum or 0)
+  end)
+
+  return matches
+end
+
 function M.bookmarks(opts)
   return M.tasks_by_status("@", opts)
 end
@@ -189,6 +227,10 @@ end
 
 function M.focused(opts)
   return M.items_by_field("focus", "true", opts)
+end
+
+function M.item_date(item)
+  return item_date(item)
 end
 
 function M.items_between_dates(start_date, end_date, opts)
