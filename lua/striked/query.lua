@@ -1,3 +1,4 @@
+local dates = require("striked.dates")
 local scanner = require("striked.scanner")
 
 local M = {}
@@ -123,6 +124,20 @@ local function matches_metadata(item, field, value)
   return false
 end
 
+local function date_values(item)
+  local values = {}
+
+  for _, field in ipairs({ "date", "completion" }) do
+    for _, value in ipairs(metadata_values(item, field)) do
+      if dates.is_valid(value) then
+        table.insert(values, value)
+      end
+    end
+  end
+
+  return values
+end
+
 function M.filter_items(predicate, opts)
   local items = scan_items(opts)
   local matches = {}
@@ -174,6 +189,42 @@ end
 
 function M.focused(opts)
   return M.items_by_field("focus", "true", opts)
+end
+
+function M.items_between_dates(start_date, end_date, opts)
+  return M.filter_items(function(item)
+    for _, value in ipairs(date_values(item)) do
+      if dates.in_range(value, start_date, end_date) then
+        return true
+      end
+    end
+
+    return false
+  end, opts)
+end
+
+function M.log_items(start_date, end_date, opts)
+  local allowed = {
+    [" "] = true,
+    x = true,
+    ["-"] = true,
+    l = true,
+    R = true,
+  }
+
+  return M.filter_items(function(item)
+    if not allowed[item.status] then
+      return false
+    end
+
+    for _, value in ipairs(date_values(item)) do
+      if dates.in_range(value, start_date, end_date) then
+        return true
+      end
+    end
+
+    return false
+  end, opts)
 end
 
 function M.find_similar_bookmarks(target, opts)

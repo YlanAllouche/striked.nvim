@@ -210,6 +210,56 @@ local function notify_note_created(kind, result)
   vim.notify(string.format("striked.nvim created %s note at %s", kind, result.relative_path), vim.log.levels.INFO)
 end
 
+local function normalized_range(opts)
+  local start_date = trim(opts.startDate or opts.start_date)
+  local end_date = trim(opts.endDate or opts.end_date)
+
+  if start_date == "" then
+    error("striked.nvim requires a start date for log generation")
+  end
+
+  if not dates.is_valid(start_date) then
+    error(string.format("striked.nvim expected a valid start date, got %q", start_date))
+  end
+
+  if end_date == "" then
+    end_date = dates.today()
+  elseif not dates.is_valid(end_date) then
+    error(string.format("striked.nvim expected a valid end date, got %q", end_date))
+  end
+
+  if dates.compare(start_date, end_date) > 0 then
+    error("striked.nvim start date must be before or equal to end date")
+  end
+
+  return start_date, end_date
+end
+
+local function list_lines(items)
+  local lines = {}
+
+  for _, item in ipairs(items) do
+    local title = trim(item.title or item.text)
+    if title ~= "" then
+      table.insert(lines, "- " .. title)
+    end
+  end
+
+  return lines
+end
+
+local function insert_lines_at_cursor(lines, opts)
+  if #lines == 0 then
+    vim.notify("striked.nvim found no matching items", vim.log.levels.INFO)
+    return 0
+  end
+
+  local buffer = opts.buffer or vim.api.nvim_get_current_buf()
+  local row = opts.row or vim.api.nvim_win_get_cursor(0)[1]
+  vim.api.nvim_buf_set_lines(buffer, row - 1, row - 1, false, lines)
+  return #lines
+end
+
 local function journal_date(text)
   local value = trim(text)
   if value == "" then
@@ -530,6 +580,57 @@ function M.prompt_journal_date(opts)
     end
 
     M.open_journal(vim.tbl_extend("force", opts, { date = trim(date) }))
+  end)
+end
+
+function M.build_log(opts)
+  opts = opts or {}
+
+  local start_date, end_date = normalized_range(opts)
+  local items = query.log_items(start_date, end_date, opts)
+  local inserted = insert_lines_at_cursor(list_lines(items), opts)
+
+  return {
+    start_date = start_date,
+    end_date = end_date,
+    items = items,
+    inserted = inserted,
+  }
+end
+
+function M.print_focused(opts)
+  opts = opts or {}
+
+  local items = query.focused(opts)
+  local inserted = insert_lines_at_cursor(list_lines(items), opts)
+
+  return {
+    items = items,
+    inserted = inserted,
+  }
+end
+
+function M.prompt_build_log(opts)
+  opts = opts or {}
+
+  vim.ui.input({ prompt = "Log start date [YYYY-MM-DD]: " }, function(start_date)
+    start_date = trim(start_date)
+    if start_date == "" then
+      return
+    end
+
+    vim.ui.input({ prompt = "Log end date [YYYY-MM-DD, blank=today]: " }, function(end_date)
+      if end_date == nil then
+        return
+      end
+
+      local result = M.build_log(vim.tbl_extend("force", opts, {
+        startDate = start_date,
+        endDate = trim(end_date),
+      }))
+
+      vim.notify(string.format("striked.nvim inserted %d log item(s)", result.inserted), vim.log.levels.INFO)
+    end)
   end)
 end
 

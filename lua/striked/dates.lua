@@ -40,4 +40,26 @@ function M.shift(text, days)
   return os.date("%Y-%m-%d", time + ((days or 0) * SECONDS_PER_DAY))
 end
 
+function M.compare(left, right)
+  local left_time = M.parse(left)
+  local right_time = M.parse(right)
+  if not left_time or not right_time then
+    error("striked.nvim compare expects valid ISO dates")
+  end
+
+  if left_time < right_time then
+    return -1
+  end
+
+  if left_time > right_time then
+    return 1
+  end
+
+  return 0
+end
+
+function M.in_range(value, start_date, end_date)
+  return M.compare(value, start_date) >= 0 and M.compare(value, end_date) <= 0
+end
+
 return M

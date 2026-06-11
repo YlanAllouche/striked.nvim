@@ -158,6 +158,14 @@ local function register_commands()
     M.journal_previous()
   end, {})
 
+  vim.api.nvim_create_user_command("StrikedLog", function()
+    M.prompt_build_log()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedFocusedPrint", function()
+    M.print_focused()
+  end, {})
+
   runtime.commands_registered = true
 end
 
@@ -196,6 +204,14 @@ end
 
 function M.focused(opts)
   return query.focused(opts)
+end
+
+function M.items_between_dates(start_date, end_date, opts)
+  return query.items_between_dates(start_date, end_date, opts)
+end
+
+function M.log_items(start_date, end_date, opts)
+  return query.log_items(start_date, end_date, opts)
 end
 
 function M.pick_bookmarks(opts)
@@ -284,6 +300,18 @@ end
 
 function M.prompt_journal_date(opts)
   return actions.prompt_journal_date(opts)
+end
+
+function M.build_log(opts)
+  return actions.build_log(opts)
+end
+
+function M.print_focused(opts)
+  return actions.print_focused(opts)
+end
+
+function M.prompt_build_log(opts)
+  return actions.prompt_build_log(opts)
 end
 
 function M._bootstrap()
