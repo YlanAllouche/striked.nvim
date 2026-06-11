@@ -2,6 +2,13 @@ local scanner = require("striked.scanner")
 
 local M = {}
 
+local field_aliases = {
+  project = { "project", "projects" },
+  projects = { "project", "projects" },
+  topic = { "topic", "topics" },
+  topics = { "topic", "topics" },
+}
+
 local function trim(text)
   return vim.trim(text or "")
 end
@@ -67,12 +74,61 @@ local function scan_items(opts)
   return scanner.scan(opts)
 end
 
-function M.tasks_by_status(status, opts)
+local function field_names(field)
+  local normalized = trim(tostring(field or "")):lower()
+  return field_aliases[normalized] or { normalized }
+end
+
+local function metadata_values(item, field)
+  local values = {}
+  local seen = {}
+
+  for _, name in ipairs(field_names(field)) do
+    for _, value in ipairs(item.metadata and item.metadata[name] or {}) do
+      local raw = trim(tostring(value))
+
+      for part in raw:gmatch("[^,]+") do
+        local entry = trim(part)
+        local lowered = entry:lower()
+
+        if entry ~= "" and not seen[lowered] then
+          seen[lowered] = true
+          table.insert(values, entry)
+        end
+      end
+
+      local lowered_raw = raw:lower()
+      if raw ~= "" and not seen[lowered_raw] then
+        seen[lowered_raw] = true
+        table.insert(values, raw)
+      end
+    end
+  end
+
+  return values
+end
+
+local function matches_metadata(item, field, value)
+  local expected = trim(tostring(value or "")):lower()
+  if expected == "" then
+    return false
+  end
+
+  for _, item_value in ipairs(metadata_values(item, field)) do
+    if item_value:lower() == expected then
+      return true
+    end
+  end
+
+  return false
+end
+
+function M.filter_items(predicate, opts)
   local items = scan_items(opts)
   local matches = {}
 
   for _, item in ipairs(items) do
-    if item.status == status then
+    if predicate(item) then
       table.insert(matches, item)
     end
   end
@@ -80,8 +136,44 @@ function M.tasks_by_status(status, opts)
   return matches
 end
 
+function M.tasks_by_status(status, opts)
+  return M.filter_items(function(item)
+    return item.status == status
+  end, opts)
+end
+
+function M.tasks_by_statuses(statuses, opts)
+  local allowed = {}
+
+  for _, status in ipairs(statuses or {}) do
+    allowed[status] = true
+  end
+
+  return M.filter_items(function(item)
+    return allowed[item.status] == true
+  end, opts)
+end
+
+function M.active_tasks(opts)
+  return M.tasks_by_statuses({ "/", " " }, opts)
+end
+
 function M.bookmarks(opts)
   return M.tasks_by_status("@", opts)
+end
+
+function M.metadata_values(item, field)
+  return metadata_values(item, field)
+end
+
+function M.items_by_field(field, value, opts)
+  return M.filter_items(function(item)
+    return matches_metadata(item, field, value)
+  end, opts)
+end
+
+function M.focused(opts)
+  return M.items_by_field("focus", "true", opts)
 end
 
 function M.find_similar_bookmarks(target, opts)

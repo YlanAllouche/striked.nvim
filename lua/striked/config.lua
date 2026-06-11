@@ -14,11 +14,12 @@ local defaults = {
   mappings = {
     enabled = true,
     bookmarks = "<leader>sb",
-    tasks_open = "<leader>so",
+    tasks_open = false,
     tasks_done = "<leader>sx",
     tasks_slash = "<leader>s/",
     tasks_question = "<leader>s?",
     tasks_n = "<leader>sn",
+    focused = "<leader>sf",
     add_bookmark = "<leader>sa",
   },
   bookmark = {

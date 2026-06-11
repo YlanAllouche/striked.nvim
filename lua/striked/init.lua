@@ -41,20 +41,23 @@ local function apply_mappings()
     M.pick_bookmarks()
   end, "Striked bookmarks")
   set_mapping("n", mappings.tasks_open, function()
-    M.pick_tasks_by_status(" ")
-  end, "Striked open tasks")
+    M.pick_active_tasks()
+  end, "Striked active tasks")
   set_mapping("n", mappings.tasks_done, function()
     M.pick_tasks_by_status("x")
   end, "Striked done tasks")
   set_mapping("n", mappings.tasks_slash, function()
-    M.pick_tasks_by_status("/")
-  end, "Striked slash tasks")
+    M.pick_active_tasks()
+  end, "Striked active tasks")
   set_mapping("n", mappings.tasks_question, function()
     M.pick_tasks_by_status("?")
   end, "Striked question tasks")
   set_mapping("n", mappings.tasks_n, function()
     M.pick_tasks_by_status("n")
   end, "Striked n tasks")
+  set_mapping("n", mappings.focused, function()
+    M.pick_focused()
+  end, "Striked focused items")
   set_mapping("n", mappings.add_bookmark, function()
     M.prompt_add_bookmark()
   end, "Striked add bookmark")
@@ -79,7 +82,7 @@ local function register_commands()
   })
 
   vim.api.nvim_create_user_command("StrikedTasksOpen", function()
-    M.pick_tasks_by_status(" ")
+    M.pick_active_tasks()
   end, {})
 
   vim.api.nvim_create_user_command("StrikedTasksDone", function()
@@ -87,7 +90,7 @@ local function register_commands()
   end, {})
 
   vim.api.nvim_create_user_command("StrikedTasksSlash", function()
-    M.pick_tasks_by_status("/")
+    M.pick_active_tasks()
   end, {})
 
   vim.api.nvim_create_user_command("StrikedTasksQuestion", function()
@@ -96,6 +99,10 @@ local function register_commands()
 
   vim.api.nvim_create_user_command("StrikedTasksN", function()
     M.pick_tasks_by_status("n")
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedFocused", function()
+    M.pick_focused()
   end, {})
 
   vim.api.nvim_create_user_command("StrikedAddBookmark", function()
@@ -126,12 +133,36 @@ function M.tasks_by_status(status, opts)
   return query.tasks_by_status(status, opts)
 end
 
+function M.tasks_by_statuses(statuses, opts)
+  return query.tasks_by_statuses(statuses, opts)
+end
+
+function M.active_tasks(opts)
+  return query.active_tasks(opts)
+end
+
+function M.items_by_field(field, value, opts)
+  return query.items_by_field(field, value, opts)
+end
+
+function M.focused(opts)
+  return query.focused(opts)
+end
+
 function M.pick_bookmarks(opts)
   return pickers.pick_bookmarks(opts)
 end
 
+function M.pick_active_tasks(opts)
+  return pickers.pick_active_tasks(opts)
+end
+
 function M.pick_tasks_by_status(status, opts)
   return pickers.pick_tasks_by_status(status, opts)
+end
+
+function M.pick_focused(opts)
+  return pickers.pick_focused(opts)
 end
 
 function M.find_similar_bookmarks(target, opts)

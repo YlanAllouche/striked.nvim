@@ -47,10 +47,10 @@ local function searchable_text(item)
   }, " ")
 end
 
-local function compact_details(item, kind)
+local function compact_details(item, opts)
   local details = {}
 
-  if kind == "bookmark" and item.url then
+  if opts.show_urls and item.url then
     table.insert(details, short_text(item.url, 48))
   end
 
@@ -73,9 +73,9 @@ local function compact_details(item, kind)
   return table.concat(details, " | ")
 end
 
-local function display_text(item, kind)
+local function display_text(item, opts)
   local location = string.format("%s:%d", item.relative_path or item.path or "", item.lnum or 0)
-  local details = compact_details(item, kind)
+  local details = compact_details(item, opts)
 
   return join_non_empty({
     string.format("[%s] %s", item.status, item.title),
@@ -124,7 +124,7 @@ function M.pick_items(items, opts)
       entry_maker = function(item)
         return {
           value = item,
-          display = display_text(item, opts.kind),
+          display = display_text(item, opts),
           ordinal = searchable_text(item),
           filename = item.path,
           lnum = item.lnum,
@@ -159,7 +159,16 @@ function M.pick_bookmarks(opts)
   opts = opts or {}
   return M.pick_items(query.bookmarks(opts), vim.tbl_extend("force", opts, {
     kind = "bookmark",
+    show_urls = true,
     prompt_title = opts.prompt_title or "Striked Bookmarks",
+  }))
+end
+
+function M.pick_active_tasks(opts)
+  opts = opts or {}
+  return M.pick_items(query.active_tasks(opts), vim.tbl_extend("force", opts, {
+    kind = "task",
+    prompt_title = opts.prompt_title or "Striked Active Tasks",
   }))
 end
 
@@ -168,6 +177,15 @@ function M.pick_tasks_by_status(status, opts)
   return M.pick_items(query.tasks_by_status(status, opts), vim.tbl_extend("force", opts, {
     kind = "task",
     prompt_title = opts.prompt_title or string.format("Striked Tasks [%s]", status),
+  }))
+end
+
+function M.pick_focused(opts)
+  opts = opts or {}
+  return M.pick_items(query.focused(opts), vim.tbl_extend("force", opts, {
+    kind = "item",
+    show_urls = true,
+    prompt_title = opts.prompt_title or "Striked Focused",
   }))
 end
 
