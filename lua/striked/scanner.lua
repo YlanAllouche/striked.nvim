@@ -1,25 +1,10 @@
 local config = require("striked.config")
 local parser = require("striked.parser")
+local paths = require("striked.paths")
 
 local M = {}
 
 local uv = vim.uv or vim.loop
-
-local function normalize_path(path)
-  return vim.fs.normalize(path)
-end
-
-local function relative_path(base, path)
-  local normalized_base = normalize_path(base):gsub("/$", "")
-  local normalized_path = normalize_path(path)
-  local prefix = normalized_base .. "/"
-
-  if normalized_path:sub(1, #prefix) == prefix then
-    return normalized_path:sub(#prefix + 1)
-  end
-
-  return normalized_path
-end
 
 local function glob_to_pattern(glob)
   return "^" .. vim.pesc(glob):gsub("%%%*", ".*"):gsub("%%%?", ".") .. "$"
@@ -66,18 +51,18 @@ local function collect_markdown_files(root, matchers, files)
         collect_markdown_files(path, matchers, files)
       end
     elseif entry_type == "file" and matches_any(name, matchers) then
-      table.insert(files, normalize_path(path))
+      table.insert(files, paths.normalize(path))
     end
   end
 end
 
-local function scan_file(path, cwd, items)
+local function scan_file(path, root, items)
   local ok, lines = pcall(vim.fn.readfile, path)
   if not ok then
     return
   end
 
-  local relpath = relative_path(cwd, path)
+  local relpath = paths.relative_path(root, path)
   local active_fence
 
   for lnum, line in ipairs(lines) do
@@ -110,16 +95,16 @@ function M.scan(opts)
   opts = opts or {}
 
   local resolved_config = config.get()
-  local cwd = normalize_path(opts.cwd or vim.fn.getcwd())
+  local root = paths.ensure_notes_tree(opts)
   local matchers = build_matchers(opts.file_patterns or resolved_config.file_patterns)
   local files = {}
   local items = {}
 
-  collect_markdown_files(cwd, matchers, files)
+  collect_markdown_files(root, matchers, files)
   table.sort(files)
 
   for _, path in ipairs(files) do
-    scan_file(path, cwd, items)
+    scan_file(path, root, items)
   end
 
   return items

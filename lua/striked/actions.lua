@@ -1,25 +1,10 @@
 local config = require("striked.config")
 local parser = require("striked.parser")
 local pickers = require("striked.pickers")
+local paths = require("striked.paths")
 local query = require("striked.query")
 
 local M = {}
-
-local function normalize_path(path)
-  return vim.fs.normalize(path)
-end
-
-local function relative_path(base, path)
-  local normalized_base = normalize_path(base):gsub("/$", "")
-  local normalized_path = normalize_path(path)
-  local prefix = normalized_base .. "/"
-
-  if normalized_path:sub(1, #prefix) == prefix then
-    return normalized_path:sub(#prefix + 1)
-  end
-
-  return normalized_path
-end
 
 local function trim(text)
   return vim.trim(text or "")
@@ -97,7 +82,7 @@ end
 
 local function resolve_target(opts)
   local target = {
-    path = opts.path and normalize_path(opts.path) or nil,
+    path = opts.path and paths.normalize(opts.path) or nil,
     buffer = opts.buffer,
     use_buffer = false,
   }
@@ -108,7 +93,7 @@ local function resolve_target(opts)
 
   if target.buffer then
     local raw_buffer_name = vim.api.nvim_buf_get_name(target.buffer)
-    local buffer_name = raw_buffer_name ~= "" and normalize_path(raw_buffer_name) or ""
+    local buffer_name = raw_buffer_name ~= "" and paths.normalize(raw_buffer_name) or ""
 
     if buffer_name ~= "" and (not target.path or target.path == buffer_name) then
       target.path = buffer_name
@@ -148,6 +133,7 @@ local function insert_into_buffer(buffer, line, opts)
 end
 
 local function insert_into_file(path, line, opts)
+  paths.ensure_parent_dir(path)
   local lines = vim.fn.filereadable(path) == 1 and vim.fn.readfile(path) or {}
   local line_count = #lines
 
@@ -213,7 +199,7 @@ function M.add_bookmark(opts)
 
   local item = parser.parse_line(line, {
     path = target.path,
-    relative_path = relative_path(vim.fn.getcwd(), target.path),
+    relative_path = paths.relative_path(paths.resolve_root(opts), target.path),
     lnum = inserted_lnum,
     col = 1,
   })

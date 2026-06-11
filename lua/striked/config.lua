@@ -2,6 +2,15 @@ local M = {}
 
 local defaults = {
   file_patterns = { "*.md", "*.markdown", "*.mdx" },
+  notes = {
+    root = "~/share/notes",
+    directories = {
+      journal = "journal",
+      sprints = "sprints",
+      topics = "topics",
+      projects = "projects",
+    },
+  },
   mappings = {
     enabled = true,
     bookmarks = "<leader>sb",
