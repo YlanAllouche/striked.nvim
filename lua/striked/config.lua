@@ -29,6 +29,7 @@ local defaults = {
     telescope = {
       layout_strategy = "flex",
       sorting_strategy = "ascending",
+      open_url = "<C-o>",
       layout_config = {
         prompt_position = "top",
       },

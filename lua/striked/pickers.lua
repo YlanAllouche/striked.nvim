@@ -2,6 +2,7 @@ local config = require("striked.config")
 local query = require("striked.query")
 
 local M = {}
+local uv = vim.uv or vim.loop
 
 local function join_non_empty(parts, separator)
   local values = {}
@@ -90,6 +91,55 @@ local function open_location(entry)
   vim.cmd("normal! zz")
 end
 
+local function browser_command(url)
+  local browser = vim.env.BROWSER
+  if browser and browser ~= "" then
+    return browser .. " " .. vim.fn.shellescape(url)
+  end
+
+  local sysname = (uv.os_uname() or {}).sysname
+  if sysname == "Linux" then
+    return { "xdg-open", url }
+  end
+
+  if sysname == "Darwin" then
+    return { "open", url }
+  end
+
+  if sysname and sysname:match("Windows") then
+    return { "cmd.exe", "/c", "start", "", url }
+  end
+
+  return nil
+end
+
+function M.open_url(url)
+  local target = vim.trim(tostring(url or ""))
+  if target == "" then
+    vim.notify("striked.nvim could not find a URL to open", vim.log.levels.WARN)
+    return false
+  end
+
+  local command = browser_command(target)
+  if not command then
+    vim.notify("striked.nvim could not determine how to open URLs on this platform", vim.log.levels.ERROR)
+    return false
+  end
+
+  local job = vim.fn.jobstart(command, { detach = true })
+
+  if job <= 0 then
+    vim.notify(string.format("striked.nvim failed to open URL: %s", target), vim.log.levels.ERROR)
+    return false
+  end
+
+  return true
+end
+
+function M.open_item_url(item)
+  return M.open_url(item and item.url)
+end
+
 local function telescope_deps()
   local ok_pickers, telescope_pickers = pcall(require, "telescope.pickers")
   local ok_finders, telescope_finders = pcall(require, "telescope.finders")
@@ -138,7 +188,7 @@ function M.pick_items(items, opts)
     layout_strategy = picker_config.layout_strategy,
     sorting_strategy = picker_config.sorting_strategy,
     layout_config = picker_config.layout_config,
-    attach_mappings = function(prompt_bufnr)
+    attach_mappings = function(prompt_bufnr, map)
       telescope.actions.select_default:replace(function()
         local selection = telescope.action_state.get_selected_entry()
         telescope.actions.close(prompt_bufnr)
@@ -147,6 +197,22 @@ function M.pick_items(items, opts)
           open_location(selection)
         end
       end)
+
+      local open_url_mapping = picker_config.open_url
+      if open_url_mapping and opts.show_urls then
+        local function open_selected_url()
+          local selection = telescope.action_state.get_selected_entry()
+          if not selection then
+            return
+          end
+
+          telescope.actions.close(prompt_bufnr)
+          M.open_item_url(selection.value)
+        end
+
+        map("i", open_url_mapping, open_selected_url)
+        map("n", open_url_mapping, open_selected_url)
+      end
 
       return true
     end,
