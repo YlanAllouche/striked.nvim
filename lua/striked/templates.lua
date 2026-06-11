@@ -1,7 +1,9 @@
 local M = {}
+local dates = require("striked.dates")
 
 local seeded = false
 local directories = {
+  journal = "journal",
   topic = "topics",
   project = "projects",
   sprint = "sprints",
@@ -51,10 +53,6 @@ local function merge_lines(fields, body)
   return lines
 end
 
-local function today()
-  return os.date("%Y-%m-%d")
-end
-
 local function title_required(kind, opts)
   local title = trim(opts.title)
   if title == "" then
@@ -87,7 +85,7 @@ local function render_project(opts)
 end
 
 local function render_sprint(opts)
-  local default_date = today()
+  local default_date = dates.today()
   local start_date = trim(opts.startDate or opts.start_date)
   local end_date = trim(opts.endDate or opts.end_date)
 
@@ -115,7 +113,34 @@ local function render_sprint(opts)
   }
 end
 
+local function render_journal(opts)
+  local date = trim(opts.date)
+  if not dates.is_valid(date) then
+    error(string.format("striked.nvim requires a valid journal date, got %q", opts.date or ""))
+  end
+
+  return {
+    directory = directories.journal,
+    filename = date .. ".md",
+    lines = merge_lines({
+      { key = "title", value = date },
+    }, {
+      "# Brief",
+      "",
+      "## yesterday",
+      "",
+      "## today",
+      "",
+      "# Log",
+      "",
+      "# Tasks",
+      "",
+    }),
+  }
+end
+
 local renderers = {
+  journal = render_journal,
   topic = render_topic,
   project = render_project,
   sprint = render_sprint,
@@ -151,7 +176,7 @@ function M.render(kind, opts)
     error(string.format("striked.nvim does not support note kind %q", kind))
   end
 
-  if trim(opts.id) == "" then
+  if normalized ~= "journal" and trim(opts.id) == "" then
     error("striked.nvim requires opts.id when rendering note templates")
   end
 

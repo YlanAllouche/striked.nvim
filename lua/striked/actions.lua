@@ -1,11 +1,13 @@
 local config = require("striked.config")
 local parser = require("striked.parser")
 local pickers = require("striked.pickers")
+local dates = require("striked.dates")
 local paths = require("striked.paths")
 local query = require("striked.query")
 local templates = require("striked.templates")
 
 local M = {}
+local uv = vim.uv or vim.loop
 
 local function trim(text)
   return vim.trim(text or "")
@@ -181,6 +183,10 @@ local function note_path(kind, id, opts)
   return paths.join(paths.note_subdir(templates.directory_key(kind), opts), id .. ".md")
 end
 
+local function journal_path(date, opts)
+  return paths.join(paths.note_subdir("journal", opts), date .. ".md")
+end
+
 local function unique_note_id(kind, opts)
   local explicit = trim(opts.id)
   if explicit ~= "" then
@@ -202,6 +208,88 @@ end
 
 local function notify_note_created(kind, result)
   vim.notify(string.format("striked.nvim created %s note at %s", kind, result.relative_path), vim.log.levels.INFO)
+end
+
+local function journal_date(text)
+  local value = trim(text)
+  if value == "" then
+    return dates.today()
+  end
+
+  if not dates.is_valid(value) then
+    error(string.format("striked.nvim expected a valid journal date, got %q", text or ""))
+  end
+
+  return value
+end
+
+local function journal_buffer_date(opts)
+  local current_path = vim.api.nvim_buf_get_name(0)
+  if current_path == "" then
+    return nil
+  end
+
+  local relative = paths.relative_path(paths.note_subdir("journal", opts), current_path)
+  if relative == paths.normalize(current_path) then
+    return nil
+  end
+
+  local date = relative:match("^(%d%d%d%d%-%d%d%-%d%d)%.md$")
+  if date and dates.is_valid(date) then
+    return date
+  end
+
+  return nil
+end
+
+local function journal_reference_date(opts)
+  return journal_date(opts.date or journal_buffer_date(opts) or dates.today())
+end
+
+local function journal_dates(opts)
+  local directory = paths.ensure_dir(paths.note_subdir("journal", opts))
+  local entries = {}
+  local handle = uv.fs_scandir(directory)
+
+  if not handle then
+    return entries
+  end
+
+  while true do
+    local name, entry_type = uv.fs_scandir_next(handle)
+    if not name then
+      break
+    end
+
+    if entry_type == "file" then
+      local date = name:match("^(%d%d%d%d%-%d%d%-%d%d)%.md$")
+      if date and dates.is_valid(date) then
+        table.insert(entries, date)
+      end
+    end
+  end
+
+  table.sort(entries)
+  return entries
+end
+
+local function existing_journal_date(reference, direction, opts)
+  local entries = journal_dates(opts)
+  if direction > 0 then
+    for _, date in ipairs(entries) do
+      if date > reference then
+        return date
+      end
+    end
+  else
+    for index = #entries, 1, -1 do
+      if entries[index] < reference then
+        return entries[index]
+      end
+    end
+  end
+
+  return nil
 end
 
 function M.add_bookmark(opts)
@@ -284,6 +372,76 @@ function M.create_note(opts)
   }
 end
 
+function M.open_journal(opts)
+  opts = opts or {}
+
+  paths.ensure_notes_tree(opts)
+
+  local date = journal_date(opts.date)
+  local path = journal_path(date, opts)
+  local created = false
+
+  if vim.fn.filereadable(path) == 0 then
+    local rendered = templates.render("journal", { date = date })
+    write_file(path, rendered.lines)
+    created = true
+  end
+
+  if opts.open ~= false then
+    open_file(path)
+  end
+
+  local result = {
+    kind = "journal",
+    date = date,
+    path = path,
+    relative_path = paths.relative_path(paths.resolve_root(opts), path),
+    created = created,
+  }
+
+  if created then
+    notify_note_created("journal", result)
+  end
+
+  return result
+end
+
+function M.journal_today(opts)
+  return M.open_journal(vim.tbl_extend("force", opts or {}, { date = dates.today() }))
+end
+
+function M.journal_tomorrow(opts)
+  return M.open_journal(vim.tbl_extend("force", opts or {}, { date = dates.shift(journal_reference_date(opts or {}), 1) }))
+end
+
+function M.journal_yesterday(opts)
+  return M.open_journal(vim.tbl_extend("force", opts or {}, { date = dates.shift(journal_reference_date(opts or {}), -1) }))
+end
+
+function M.journal_next(opts)
+  opts = opts or {}
+
+  local next_date = existing_journal_date(journal_reference_date(opts), 1, opts)
+  if not next_date then
+    vim.notify("striked.nvim could not find a later journal note", vim.log.levels.INFO)
+    return nil
+  end
+
+  return M.open_journal(vim.tbl_extend("force", opts, { date = next_date }))
+end
+
+function M.journal_previous(opts)
+  opts = opts or {}
+
+  local previous_date = existing_journal_date(journal_reference_date(opts), -1, opts)
+  if not previous_date then
+    vim.notify("striked.nvim could not find an earlier journal note", vim.log.levels.INFO)
+    return nil
+  end
+
+  return M.open_journal(vim.tbl_extend("force", opts, { date = previous_date }))
+end
+
 function M.create_topic(opts)
   return M.create_note(vim.tbl_extend("force", opts or {}, { kind = "topic" }))
 end
@@ -361,6 +519,18 @@ end
 
 function M.prompt_create_sprint(opts)
   return M.prompt_create_note("sprint", opts)
+end
+
+function M.prompt_journal_date(opts)
+  opts = opts or {}
+
+  vim.ui.input({ prompt = "Journal date [YYYY-MM-DD]: ", default = dates.today() }, function(date)
+    if date == nil then
+      return
+    end
+
+    M.open_journal(vim.tbl_extend("force", opts, { date = trim(date) }))
+  end)
 end
 
 function M.prompt_add_bookmark(opts)

@@ -58,6 +58,15 @@ local function apply_mappings()
   set_mapping("n", mappings.focused, function()
     M.pick_focused()
   end, "Striked focused items")
+  set_mapping("n", mappings.journal_today, function()
+    M.journal_today()
+  end, "Striked journal today")
+  set_mapping("n", mappings.journal_tomorrow, function()
+    M.journal_tomorrow()
+  end, "Striked journal tomorrow")
+  set_mapping("n", mappings.journal_yesterday, function()
+    M.journal_yesterday()
+  end, "Striked journal yesterday")
   set_mapping("n", mappings.add_bookmark, function()
     M.prompt_add_bookmark()
   end, "Striked add bookmark")
@@ -119,6 +128,34 @@ local function register_commands()
 
   vim.api.nvim_create_user_command("StrikedNewSprint", function()
     M.prompt_create_sprint()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedJournal", function(command_opts)
+    M.open_journal({ date = command_opts.args })
+  end, { nargs = 1 })
+
+  vim.api.nvim_create_user_command("StrikedJournalPrompt", function()
+    M.prompt_journal_date()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedJournalToday", function()
+    M.journal_today()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedJournalTomorrow", function()
+    M.journal_tomorrow()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedJournalYesterday", function()
+    M.journal_yesterday()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedJournalNext", function()
+    M.journal_next()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedJournalPrevious", function()
+    M.journal_previous()
   end, {})
 
   runtime.commands_registered = true
@@ -201,6 +238,30 @@ function M.create_sprint(opts)
   return actions.create_sprint(opts)
 end
 
+function M.open_journal(opts)
+  return actions.open_journal(opts)
+end
+
+function M.journal_today(opts)
+  return actions.journal_today(opts)
+end
+
+function M.journal_tomorrow(opts)
+  return actions.journal_tomorrow(opts)
+end
+
+function M.journal_yesterday(opts)
+  return actions.journal_yesterday(opts)
+end
+
+function M.journal_next(opts)
+  return actions.journal_next(opts)
+end
+
+function M.journal_previous(opts)
+  return actions.journal_previous(opts)
+end
+
 function M.prompt_add_bookmark(opts)
   return actions.prompt_add_bookmark(opts)
 end
@@ -219,6 +280,10 @@ end
 
 function M.prompt_create_sprint(opts)
   return actions.prompt_create_sprint(opts)
+end
+
+function M.prompt_journal_date(opts)
+  return actions.prompt_journal_date(opts)
 end
 
 function M._bootstrap()

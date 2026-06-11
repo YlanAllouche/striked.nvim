@@ -20,6 +20,9 @@ local defaults = {
     tasks_question = "<leader>s?",
     tasks_n = "<leader>sn",
     focused = "<leader>sf",
+    journal_today = "<leader>jt",
+    journal_tomorrow = "<leader>jn",
+    journal_yesterday = "<leader>jy",
     add_bookmark = "<leader>sa",
   },
   bookmark = {
