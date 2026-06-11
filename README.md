@@ -202,9 +202,9 @@ In the bookmarks and focused pickers, press `<C-o>` to open the selected entry's
 
 Open order:
 
+- `open` on macOS
 - `$BROWSER` if set
 - `xdg-open` on Linux
-- `open` on macOS
 - `start` via `cmd.exe` on Windows
 
 ## Lua API

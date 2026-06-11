@@ -92,18 +92,18 @@ local function open_location(entry)
 end
 
 local function browser_command(url)
+  local sysname = (uv.os_uname() or {}).sysname
+  if sysname == "Darwin" then
+    return { "open", url }
+  end
+
   local browser = vim.env.BROWSER
   if browser and browser ~= "" then
     return browser .. " " .. vim.fn.shellescape(url)
   end
 
-  local sysname = (uv.os_uname() or {}).sysname
   if sysname == "Linux" then
     return { "xdg-open", url }
-  end
-
-  if sysname == "Darwin" then
-    return { "open", url }
   end
 
   if sysname and sysname:match("Windows") then
