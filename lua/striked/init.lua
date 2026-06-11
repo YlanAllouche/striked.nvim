@@ -109,6 +109,18 @@ local function register_commands()
     M.prompt_add_bookmark()
   end, {})
 
+  vim.api.nvim_create_user_command("StrikedNewTopic", function()
+    M.prompt_create_topic()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedNewProject", function()
+    M.prompt_create_project()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedNewSprint", function()
+    M.prompt_create_sprint()
+  end, {})
+
   runtime.commands_registered = true
 end
 
@@ -173,8 +185,40 @@ function M.add_bookmark(opts)
   return actions.add_bookmark(opts)
 end
 
+function M.create_note(opts)
+  return actions.create_note(opts)
+end
+
+function M.create_topic(opts)
+  return actions.create_topic(opts)
+end
+
+function M.create_project(opts)
+  return actions.create_project(opts)
+end
+
+function M.create_sprint(opts)
+  return actions.create_sprint(opts)
+end
+
 function M.prompt_add_bookmark(opts)
   return actions.prompt_add_bookmark(opts)
+end
+
+function M.prompt_create_note(kind, opts)
+  return actions.prompt_create_note(kind, opts)
+end
+
+function M.prompt_create_topic(opts)
+  return actions.prompt_create_topic(opts)
+end
+
+function M.prompt_create_project(opts)
+  return actions.prompt_create_project(opts)
+end
+
+function M.prompt_create_sprint(opts)
+  return actions.prompt_create_sprint(opts)
 end
 
 function M._bootstrap()
