@@ -10,6 +10,15 @@ local templates = require("striked.templates")
 
 local M = {}
 local uv = vim.uv or vim.loop
+local attendee_category_order = { "required", "optional", "chair", "nonParticipant", "tentative", "declined", "delegated", "other" }
+local legacy_meeting_scalar_keys = {
+  occurrenceId = true,
+  joinUrl = true,
+  location = true,
+  seriesId = true,
+  sourceKey = true,
+  status = true,
+}
 
 local function trim(text)
   return vim.trim(text or "")
@@ -287,13 +296,15 @@ end
 local function existing_meeting(source_key, series_id, occurrence_id, opts)
   for _, path in ipairs(meeting_files(opts)) do
     local document = frontmatter.read_file(path)
-    local scalars = document.top_level_scalars
+    local source = frontmatter.find_scalar(document.frontmatter_lines, "sourceKey")
+    local series = frontmatter.find_scalar(document.frontmatter_lines, "seriesId")
+    local occurrence = frontmatter.find_scalar(document.frontmatter_lines, "occurrenceId")
 
-    if scalars.sourceKey == source_key then
+    if source == source_key then
       return path, document
     end
 
-    if scalars.seriesId == series_id and scalars.occurrenceId == occurrence_id then
+    if series == series_id and occurrence == occurrence_id then
       return path, document
     end
   end
@@ -313,12 +324,12 @@ local function field_keys(fields)
   return keys
 end
 
-local function append_scalar_extras(fields, scalars)
+local function append_scalar_extras(fields, scalars, ignored_keys)
   local reserved = field_keys(fields)
   local extras = {}
 
   for key, value in pairs(scalars or {}) do
-    if value ~= nil and not reserved[key] then
+    if value ~= nil and not reserved[key] and not (ignored_keys and ignored_keys[key]) then
       table.insert(extras, key)
     end
   end
@@ -330,6 +341,83 @@ local function append_scalar_extras(fields, scalars)
   end
 
   return fields
+end
+
+local function attendee_display(attendee)
+  local name = trim(attendee.name)
+  local email = trim(attendee.email)
+
+  if name ~= "" and email ~= "" then
+    return string.format("%s <%s>", name, email)
+  end
+
+  if name ~= "" then
+    return name
+  end
+
+  if email ~= "" then
+    return string.format("<%s>", email)
+  end
+
+  return ""
+end
+
+local function attendee_category(attendee)
+  local partstat = trim(attendee.partstat):upper()
+  if partstat == "TENTATIVE" then
+    return "tentative"
+  end
+
+  if partstat == "DECLINED" then
+    return "declined"
+  end
+
+  if partstat == "DELEGATED" then
+    return "delegated"
+  end
+
+  local role = trim(attendee.role):upper()
+  if role == "CHAIR" then
+    return "chair"
+  end
+
+  if role == "REQ-PARTICIPANT" then
+    return "required"
+  end
+
+  if role == "OPT-PARTICIPANT" then
+    return "optional"
+  end
+
+  if role == "NON-PARTICIPANT" then
+    return "nonParticipant"
+  end
+
+  return "other"
+end
+
+local function grouped_attendees(attendees)
+  local buckets = {}
+
+  for _, category in ipairs(attendee_category_order) do
+    buckets[category] = {}
+  end
+
+  for _, attendee in ipairs(attendees or {}) do
+    local label = attendee_display(attendee)
+    if label ~= "" then
+      table.insert(buckets[attendee_category(attendee)], label)
+    end
+  end
+
+  local grouped = {}
+  for _, category in ipairs(attendee_category_order) do
+    if #buckets[category] > 0 or category == "other" then
+      table.insert(grouped, { key = category, value = buckets[category] })
+    end
+  end
+
+  return grouped
 end
 
 local function meeting_template_opts(imported, opts, existing_scalars, fallback_id)
@@ -351,7 +439,7 @@ local function meeting_template_opts(imported, opts, existing_scalars, fallback_
     location = imported.location,
     joinUrl = imported.join_url,
     organizer = imported.organizer,
-    attendees = imported.attendees,
+    attendees = grouped_attendees(imported.attendees),
     teams = imported.teams,
   }
 end
@@ -651,7 +739,7 @@ function M.ingest_meeting_ics(opts)
     local existing_scalars = existing_document.top_level_scalars or {}
     local merged = meeting_template_opts(imported, opts, existing_scalars, trim(existing_scalars.id or vim.fn.fnamemodify(existing_path, ":t:r")))
     local rendered = templates.render("meeting", merged)
-    local fields = append_scalar_extras(rendered.fields, existing_scalars)
+    local fields = append_scalar_extras(rendered.fields, existing_scalars, legacy_meeting_scalar_keys)
 
     update_note_frontmatter(existing_path, fields)
 

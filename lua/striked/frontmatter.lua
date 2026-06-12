@@ -27,6 +27,26 @@ local function is_list(value)
   return true
 end
 
+local function is_ordered_map(value)
+  if type(value) ~= "table" or #value == 0 then
+    return false
+  end
+
+  for _, item in ipairs(value) do
+    if type(item) ~= "table" or type(item.key) ~= "string" then
+      return false
+    end
+  end
+
+  for key, _ in pairs(value) do
+    if type(key) ~= "number" then
+      return false
+    end
+  end
+
+  return true
+end
+
 local function sorted_keys(value)
   local keys = {}
 
@@ -49,11 +69,25 @@ local function encode_scalar(value)
   return vim.json.encode(tostring(value or ""))
 end
 
-local function append_key_value(lines, key, value, indent)
+local function append_key_value(lines, key, value, indent, raw)
   local prefix = string.rep(" ", indent) .. key .. ":"
 
   if type(value) ~= "table" then
-    table.insert(lines, prefix .. " " .. encode_scalar(value))
+    if raw == true then
+      table.insert(lines, prefix .. " " .. tostring(value or ""))
+    else
+      table.insert(lines, prefix .. " " .. encode_scalar(value))
+    end
+    return
+  end
+
+  if is_ordered_map(value) then
+    table.insert(lines, prefix)
+
+    for _, field in ipairs(value) do
+      append_key_value(lines, field.key, field.value, indent + 2, field.raw == true)
+    end
+
     return
   end
 
@@ -200,6 +234,17 @@ function M.top_level_scalars(lines)
   end
 
   return scalars
+end
+
+function M.find_scalar(lines, wanted_key)
+  for _, line in ipairs(lines or {}) do
+    local key, value = line:match("^%s*([^:]+):%s*(.-)%s*$")
+    if key == wanted_key and value ~= "" then
+      return decode_scalar(value)
+    end
+  end
+
+  return nil
 end
 
 function M.read_file(path)

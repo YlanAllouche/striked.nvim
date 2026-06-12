@@ -37,6 +37,37 @@ local function merge_lines(fields, body)
   return lines
 end
 
+local function ordered_map(entries)
+  local items = {}
+
+  for _, entry in ipairs(entries or {}) do
+    if entry and entry.key and entry.value ~= nil then
+      if entry.keep_empty == true or type(entry.value) ~= "table" or next(entry.value) ~= nil then
+        table.insert(items, entry)
+      end
+    end
+  end
+
+  return items
+end
+
+local function person_map(person)
+  if not person or next(person) == nil then
+    return nil
+  end
+
+  return ordered_map({
+    { key = "name", value = person.name },
+    { key = "email", value = person.email },
+  })
+end
+
+local function default_attendees()
+  return ordered_map({
+    { key = "other", value = {}, keep_empty = true },
+  })
+end
+
 local function title_required(kind, opts)
   local title = trim(opts.title)
   if title == "" then
@@ -118,39 +149,31 @@ local function render_meeting(opts)
     { key = "fullDay", value = opts.fullDay == true },
   }
 
-  if trim(opts.seriesId or opts.series_id) ~= "" then
-    table.insert(fields, { key = "seriesId", value = opts.seriesId or opts.series_id })
+  local detail = ordered_map({
+    { key = "seriesId", value = opts.seriesId or opts.series_id },
+    { key = "occurrenceId", value = opts.occurrenceId or opts.occurrence_id, raw = true },
+    { key = "sourceKey", value = opts.sourceKey or opts.source_key },
+    { key = "status", value = opts.status, raw = true },
+    { key = "location", value = opts.location },
+    { key = "joinUrl", value = opts.joinUrl or opts.join_url },
+    { key = "organizer", value = person_map(opts.organizer) },
+    { key = "teams", value = ordered_map({
+      { key = "meetingId", value = opts.teams and opts.teams.meetingId or nil },
+      { key = "passcode", value = opts.teams and opts.teams.passcode or nil },
+      { key = "phoneConferenceId", value = opts.teams and opts.teams.phoneConferenceId or nil },
+      { key = "organizerId", value = opts.teams and opts.teams.organizerId or nil },
+      { key = "tenantId", value = opts.teams and opts.teams.tenantId or nil },
+      { key = "threadId", value = opts.teams and opts.teams.threadId or nil },
+      { key = "systemReferenceUrl", value = opts.teams and opts.teams.systemReferenceUrl or nil },
+      { key = "organizerOptionsUrl", value = opts.teams and opts.teams.organizerOptionsUrl or nil },
+    }) },
+  })
+
+  if #detail > 0 then
+    table.insert(fields, { key = "detail", value = detail })
   end
 
-  if trim(opts.occurrenceId or opts.occurrence_id) ~= "" then
-    table.insert(fields, { key = "occurrenceId", value = opts.occurrenceId or opts.occurrence_id, raw = true })
-  end
-
-  if trim(opts.sourceKey or opts.source_key) ~= "" then
-    table.insert(fields, { key = "sourceKey", value = opts.sourceKey or opts.source_key })
-  end
-
-  if trim(opts.status) ~= "" then
-    table.insert(fields, { key = "status", value = opts.status, raw = true })
-  end
-
-  if trim(opts.location) ~= "" then
-    table.insert(fields, { key = "location", value = opts.location })
-  end
-
-  if trim(opts.joinUrl or opts.join_url) ~= "" then
-    table.insert(fields, { key = "joinUrl", value = opts.joinUrl or opts.join_url })
-  end
-
-  if opts.organizer and next(opts.organizer) then
-    table.insert(fields, { key = "organizer", value = opts.organizer })
-  end
-
-  table.insert(fields, { key = "attendees", value = opts.attendees or {} })
-
-  if opts.teams and next(opts.teams) then
-    table.insert(fields, { key = "teams", value = opts.teams })
-  end
+  table.insert(fields, { key = "attendees", value = opts.attendees and next(opts.attendees) ~= nil and opts.attendees or default_attendees() })
 
   return {
     directory = directories.meeting,

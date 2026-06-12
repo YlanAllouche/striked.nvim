@@ -15,8 +15,19 @@ local function unescape_text(text)
   return value
 end
 
-local function url_decode(text)
+local function html_unescape(text)
   local value = tostring(text or "")
+    :gsub("&amp;", "&")
+    :gsub("&quot;", '"')
+    :gsub("&#39;", "'")
+    :gsub("&lt;", "<")
+    :gsub("&gt;", ">")
+
+  return value
+end
+
+local function url_decode(text)
+  local value = html_unescape(tostring(text or ""))
     :gsub("%%+", " ")
     :gsub("%%(%x%x)", function(byte)
       return string.char(tonumber(byte, 16))
@@ -115,6 +126,10 @@ local function parse_person(params, value)
 
   if trim(params.ROLE or "") ~= "" then
     person.role = trim(params.ROLE)
+  end
+
+  if trim(params.PARTSTAT or "") ~= "" then
+    person.partstat = trim(params.PARTSTAT)
   end
 
   return person
