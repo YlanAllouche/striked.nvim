@@ -62,12 +62,6 @@ local function person_map(person)
   })
 end
 
-local function default_attendees()
-  return ordered_map({
-    { key = "other", value = {}, keep_empty = true },
-  })
-end
-
 local function title_required(kind, opts)
   local title = trim(opts.title)
   if title == "" then
@@ -146,10 +140,10 @@ local function render_meeting(opts)
     { key = "date", value = date, raw = true },
     { key = "startAt", value = opts.startAt or opts.start_at or "" },
     { key = "endAt", value = opts.endAt or opts.end_at or "" },
-    { key = "fullDay", value = opts.fullDay == true },
   }
 
   local detail = ordered_map({
+    { key = "fullDay", value = opts.fullDay == true },
     { key = "seriesId", value = opts.seriesId or opts.series_id },
     { key = "occurrenceId", value = opts.occurrenceId or opts.occurrence_id, raw = true },
     { key = "sourceKey", value = opts.sourceKey or opts.source_key },
@@ -173,7 +167,9 @@ local function render_meeting(opts)
     table.insert(fields, { key = "detail", value = detail })
   end
 
-  table.insert(fields, { key = "attendees", value = opts.attendees and next(opts.attendees) ~= nil and opts.attendees or default_attendees() })
+  if opts.attendees and next(opts.attendees) ~= nil then
+    table.insert(fields, { key = "attendees", value = opts.attendees })
+  end
 
   return {
     directory = directories.meeting,

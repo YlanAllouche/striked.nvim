@@ -412,7 +412,7 @@ local function grouped_attendees(attendees)
 
   local grouped = {}
   for _, category in ipairs(attendee_category_order) do
-    if #buckets[category] > 0 or category == "other" then
+    if #buckets[category] > 0 then
       table.insert(grouped, { key = category, value = buckets[category] })
     end
   end

@@ -169,11 +169,10 @@ Meeting notes include:
 - `date`
 - `startAt`
 - `endAt`
-- `fullDay`
 - `detail`
 - `attendees`
 
-Imported meeting metadata such as `seriesId`, `occurrenceId`, `sourceKey`, `status`, `location`, `joinUrl`, `organizer`, and Teams-specific fields live under `detail:`.
+Imported meeting metadata such as `fullDay`, `seriesId`, `occurrenceId`, `sourceKey`, `status`, `location`, `joinUrl`, `organizer`, and Teams-specific fields live under `detail:`.
 
 Attendees are grouped for readability under categories such as:
 
@@ -185,6 +184,8 @@ Attendees are grouped for readability under categories such as:
 - `declined`
 - `delegated`
 - `other`
+
+Empty attendee buckets are omitted.
 
 Imported recurring meeting occurrences append the occurrence date to the note title, for example `Weekly Sync (2026-06-22)`.
 
