@@ -58,6 +58,9 @@ local function apply_mappings()
   set_mapping("n", mappings.focused, function()
     M.pick_focused()
   end, "Striked focused items")
+  set_mapping("n", mappings.meeting_import, function()
+    M.ingest_meeting_ics()
+  end, "Striked import meeting")
   set_mapping("n", mappings.journal_today, function()
     M.journal_today()
   end, "Striked journal today")
@@ -129,6 +132,22 @@ local function register_commands()
   vim.api.nvim_create_user_command("StrikedNewSprint", function()
     M.prompt_create_sprint()
   end, {})
+
+  vim.api.nvim_create_user_command("StrikedNewMeeting", function()
+    M.prompt_create_meeting()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedIngestMeetingIcs", function(command_opts)
+    local argument = vim.trim(command_opts.args or "")
+    M.ingest_meeting_ics({
+      path = argument ~= "" and argument or nil,
+      delete_source = command_opts.bang == false,
+    })
+  end, {
+    nargs = "?",
+    bang = true,
+    complete = "file",
+  })
 
   vim.api.nvim_create_user_command("StrikedJournal", function(command_opts)
     M.open_journal({ date = command_opts.args })
@@ -262,6 +281,10 @@ function M.create_sprint(opts)
   return actions.create_sprint(opts)
 end
 
+function M.create_meeting(opts)
+  return actions.create_meeting(opts)
+end
+
 function M.open_journal(opts)
   return actions.open_journal(opts)
 end
@@ -304,6 +327,14 @@ end
 
 function M.prompt_create_sprint(opts)
   return actions.prompt_create_sprint(opts)
+end
+
+function M.prompt_create_meeting(opts)
+  return actions.prompt_create_meeting(opts)
+end
+
+function M.ingest_meeting_ics(opts)
+  return actions.ingest_meeting_ics(opts)
 end
 
 function M.prompt_journal_date(opts)

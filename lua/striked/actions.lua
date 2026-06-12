@@ -1,4 +1,6 @@
 local config = require("striked.config")
+local frontmatter = require("striked.frontmatter")
+local ics = require("striked.ics")
 local parser = require("striked.parser")
 local pickers = require("striked.pickers")
 local dates = require("striked.dates")
@@ -177,6 +179,219 @@ end
 
 local function open_file(path)
   vim.cmd.edit(vim.fn.fnameescape(path))
+end
+
+local function stat_score(path)
+  local stat = uv.fs_stat(path)
+  if not stat then
+    return 0
+  end
+
+  local function timestamp(value)
+    if type(value) ~= "table" then
+      return 0
+    end
+
+    return ((value.sec or 0) * 1000000000) + (value.nsec or 0)
+  end
+
+  return math.max(timestamp(stat.birthtime), timestamp(stat.mtime), timestamp(stat.ctime))
+end
+
+local function newest_ics_file(directory)
+  local normalized = paths.ensure_dir(directory)
+  local handle = uv.fs_scandir(normalized)
+  local newest_path
+  local newest_score
+
+  if not handle then
+    return nil
+  end
+
+  while true do
+    local name, entry_type = uv.fs_scandir_next(handle)
+    if not name then
+      break
+    end
+
+    if entry_type == "file" and name:lower():match("%.ics$") then
+      local path = paths.join(normalized, name)
+      local score = stat_score(path)
+
+      if not newest_score or score > newest_score then
+        newest_path = path
+        newest_score = score
+      end
+    end
+  end
+
+  return newest_path
+end
+
+local function resolve_ics_path(opts)
+  local explicit_path = trim(opts.path or opts.source)
+  if explicit_path ~= "" then
+    local normalized = paths.normalize(explicit_path)
+
+    if vim.fn.isdirectory(normalized) == 1 then
+      local latest = newest_ics_file(normalized)
+      if latest then
+        return latest
+      end
+
+      error(string.format("striked.nvim could not find any .ics file in %s", normalized))
+    end
+
+    if vim.fn.filereadable(normalized) == 1 then
+      return normalized
+    end
+
+    error(string.format("striked.nvim could not find ICS source: %s", normalized))
+  end
+
+  local folder = trim(opts.folder)
+  local directory = folder ~= "" and paths.normalize(folder) or paths.resolve_downloads_root(opts)
+  local latest = newest_ics_file(directory)
+
+  if latest then
+    return latest
+  end
+
+  error(string.format("striked.nvim could not find any .ics file in %s", directory))
+end
+
+local function meeting_files(opts)
+  local directory = paths.ensure_dir(paths.note_subdir("meetings", opts))
+  local files = {}
+  local handle = uv.fs_scandir(directory)
+
+  if not handle then
+    return files
+  end
+
+  while true do
+    local name, entry_type = uv.fs_scandir_next(handle)
+    if not name then
+      break
+    end
+
+    if entry_type == "file" and name:lower():match("%.md$") then
+      table.insert(files, paths.join(directory, name))
+    end
+  end
+
+  table.sort(files)
+  return files
+end
+
+local function existing_meeting(source_key, series_id, occurrence_id, opts)
+  for _, path in ipairs(meeting_files(opts)) do
+    local document = frontmatter.read_file(path)
+    local scalars = document.top_level_scalars
+
+    if scalars.sourceKey == source_key then
+      return path, document
+    end
+
+    if scalars.seriesId == series_id and scalars.occurrenceId == occurrence_id then
+      return path, document
+    end
+  end
+
+  return nil, nil
+end
+
+local function field_keys(fields)
+  local keys = {}
+
+  for _, field in ipairs(fields or {}) do
+    if field and field.key then
+      keys[field.key] = true
+    end
+  end
+
+  return keys
+end
+
+local function append_scalar_extras(fields, scalars)
+  local reserved = field_keys(fields)
+  local extras = {}
+
+  for key, value in pairs(scalars or {}) do
+    if value ~= nil and not reserved[key] then
+      table.insert(extras, key)
+    end
+  end
+
+  table.sort(extras)
+
+  for _, key in ipairs(extras) do
+    table.insert(fields, { key = key, value = scalars[key] })
+  end
+
+  return fields
+end
+
+local function meeting_template_opts(imported, opts, existing_scalars, fallback_id)
+  local project_override = trim(opts.project)
+  local existing_project = trim(existing_scalars.project or "")
+
+  return {
+    id = trim(existing_scalars.id or fallback_id or ""),
+    title = imported.display_title or imported.title,
+    project = project_override ~= "" and project_override or existing_project,
+    date = imported.date,
+    startAt = imported.start_at,
+    endAt = imported.end_at,
+    fullDay = imported.full_day,
+    seriesId = imported.uid,
+    occurrenceId = imported.occurrence_id,
+    sourceKey = imported.source_key,
+    status = imported.status,
+    location = imported.location,
+    joinUrl = imported.join_url,
+    organizer = imported.organizer,
+    attendees = imported.attendees,
+    teams = imported.teams,
+  }
+end
+
+local function update_note_frontmatter(path, fields)
+  local document = frontmatter.read_file(path)
+  local lines = frontmatter.render(fields)
+
+  for _, line in ipairs(document.body_lines) do
+    table.insert(lines, line)
+  end
+
+  write_file(path, lines)
+  return document
+end
+
+local function maybe_delete_source(path, opts)
+  local configured = config.get().meeting or {}
+  local delete_source = opts.delete_source
+  if delete_source == nil then
+    delete_source = configured.delete_ics_after_import ~= false
+  end
+
+  if delete_source ~= true then
+    return false
+  end
+
+  if vim.fn.delete(path) ~= 0 then
+    vim.notify(string.format("striked.nvim could not delete ICS file: %s", path), vim.log.levels.WARN)
+    return false
+  end
+
+  return true
+end
+
+local function notify_note_updated(kind, path, opts)
+  vim.notify(
+    string.format("striked.nvim updated %s note at %s", kind, paths.relative_path(paths.resolve_root(opts), path)),
+    vim.log.levels.INFO
+  )
 end
 
 local function note_path(kind, id, opts)
@@ -422,6 +637,67 @@ function M.create_note(opts)
   }
 end
 
+function M.ingest_meeting_ics(opts)
+  opts = opts or {}
+
+  paths.ensure_notes_tree(opts)
+
+  local source_path = resolve_ics_path(opts)
+  local imported = ics.parse_file(source_path)
+  local existing_path, existing_document = existing_meeting(imported.source_key, imported.uid, imported.occurrence_id, opts)
+  local result
+
+  if existing_path then
+    local existing_scalars = existing_document.top_level_scalars or {}
+    local merged = meeting_template_opts(imported, opts, existing_scalars, trim(existing_scalars.id or vim.fn.fnamemodify(existing_path, ":t:r")))
+    local rendered = templates.render("meeting", merged)
+    local fields = append_scalar_extras(rendered.fields, existing_scalars)
+
+    update_note_frontmatter(existing_path, fields)
+
+    result = {
+      created = false,
+      updated = true,
+      deleted_source = false,
+      source_path = source_path,
+      path = existing_path,
+      relative_path = paths.relative_path(paths.resolve_root(opts), existing_path),
+      id = merged.id,
+      meeting = imported,
+    }
+
+    notify_note_updated("meeting", existing_path, opts)
+  else
+    local id = unique_note_id("meeting", opts)
+    local created = M.create_note(vim.tbl_extend("force", meeting_template_opts(imported, opts, {}, id), {
+      kind = "meeting",
+      id = id,
+      open = false,
+    }))
+
+    result = {
+      created = true,
+      updated = false,
+      deleted_source = false,
+      source_path = source_path,
+      path = created.path,
+      relative_path = created.relative_path,
+      id = created.id,
+      meeting = imported,
+    }
+
+    notify_note_created("meeting", result)
+  end
+
+  result.deleted_source = maybe_delete_source(source_path, opts)
+
+  if opts.open ~= false then
+    open_file(result.path)
+  end
+
+  return result
+end
+
 function M.open_journal(opts)
   opts = opts or {}
 
@@ -504,6 +780,10 @@ function M.create_sprint(opts)
   return M.create_note(vim.tbl_extend("force", opts or {}, { kind = "sprint" }))
 end
 
+function M.create_meeting(opts)
+  return M.create_note(vim.tbl_extend("force", opts or {}, { kind = "meeting" }))
+end
+
 local function prompt_title(kind, opts, callback)
   vim.ui.input({ prompt = string.format("%s title: ", kind) }, function(title)
     title = trim(title)
@@ -544,12 +824,47 @@ local function prompt_sprint(opts)
   end)
 end
 
+local function prompt_meeting(opts)
+  prompt_title("Meeting", opts, function(title_opts)
+    vim.ui.input({ prompt = "Meeting project: " }, function(project)
+      if project == nil then
+        return
+      end
+
+      vim.ui.input({ prompt = "Meeting date [today]: ", default = dates.today() }, function(date)
+        if date == nil then
+          return
+        end
+
+        vim.ui.input({ prompt = "Full day? [y/N]: " }, function(full_day)
+          if full_day == nil then
+            return
+          end
+
+          local result = M.create_meeting(vim.tbl_extend("force", title_opts, {
+            project = trim(project),
+            date = trim(date) ~= "" and trim(date) or dates.today(),
+            fullDay = trim(full_day):lower():sub(1, 1) == "y",
+            attendees = {},
+          }))
+          notify_note_created("meeting", result)
+        end)
+      end)
+    end)
+  end)
+end
+
 function M.prompt_create_note(kind, opts)
   opts = opts or {}
   local normalized = trim(kind):lower()
 
   if normalized == "sprint" then
     prompt_sprint(opts)
+    return
+  end
+
+  if normalized == "meeting" then
+    prompt_meeting(opts)
     return
   end
 
@@ -569,6 +884,10 @@ end
 
 function M.prompt_create_sprint(opts)
   return M.prompt_create_note("sprint", opts)
+end
+
+function M.prompt_create_meeting(opts)
+  return M.prompt_create_note("meeting", opts)
 end
 
 function M.prompt_journal_date(opts)

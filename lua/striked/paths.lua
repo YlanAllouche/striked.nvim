@@ -64,6 +64,15 @@ function M.ensure_parent_dir(path)
   return M.ensure_dir(vim.fn.fnamemodify(M.normalize(path), ":h"))
 end
 
+function M.resolve_downloads_root(opts)
+  opts = opts or {}
+
+  local configured = config.get().meeting or {}
+  local root = opts.folder or opts.downloads_root or configured.downloads_root or "~/Downloads"
+
+  return M.normalize(root)
+end
+
 function M.resolve_root(opts)
   opts = opts or {}
 

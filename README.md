@@ -10,8 +10,9 @@ A Neovim plugin for scanning markdown tasks and note metadata from a shared note
 - Extracts inline metadata in the form `[field:: value]`
 - Exposes Lua APIs for scanning, status filters, field-value filters, focused items, and date-range log queries
 - Provides Telescope pickers for bookmarks, focused items, and status-based task views
-- Adds prompt-driven note creation for topics, projects, sprints, and journals
+- Adds prompt-driven note creation for topics, projects, sprints, meetings, and journals
 - Adds journal navigation helpers for today, tomorrow, yesterday, next existing, and previous existing notes
+- Imports manually exported Teams/Outlook `.ics` files into meeting notes
 - Supports inserting bookmarks and surfacing similar existing bookmarks first
 - Lets bookmark and focused Telescope pickers open URLs directly with `<C-o>`
 
@@ -62,10 +63,15 @@ require("striked").setup({
     root = "~/share/notes",
     directories = {
       journal = "journal",
+      meetings = "meetings",
       sprints = "sprints",
       topics = "topics",
       projects = "projects",
     },
+  },
+  meeting = {
+    downloads_root = "~/Downloads",
+    delete_ics_after_import = true,
   },
   mappings = {
     enabled = true,
@@ -76,6 +82,7 @@ require("striked").setup({
     tasks_question = "<leader>s?",
     tasks_n = "<leader>sn",
     focused = "<leader>sf",
+    meeting_import = "<leader>jm",
     journal_today = "<leader>jt",
     journal_tomorrow = "<leader>jn",
     journal_yesterday = "<leader>jy",
@@ -131,6 +138,7 @@ Unknown fields are still preserved and queryable through the generic metadata AP
 
 All non-journal notes are created under the configured notes root with UUID filenames:
 
+- `meetings/<uuid>.md`
 - `topics/<uuid>.md`
 - `projects/<uuid>.md`
 - `sprints/<uuid>.md`
@@ -153,6 +161,19 @@ Sprint notes always include these frontmatter fields:
 
 If sprint `startDate` or `endDate` is left empty in the prompt flow, it defaults to today.
 
+Meeting notes include:
+
+- `id`
+- `title`
+- `project`
+- `date`
+- `startAt`
+- `endAt`
+- `fullDay`
+- `attendees`
+
+Imported recurring meeting occurrences append the occurrence date to the note title, for example `Weekly Sync (2026-06-22)`.
+
 ## Commands
 
 - `:StrikedBookmarks`
@@ -168,6 +189,8 @@ If sprint `startDate` or `endDate` is left empty in the prompt flow, it defaults
 - `:StrikedNewTopic`
 - `:StrikedNewProject`
 - `:StrikedNewSprint`
+- `:StrikedNewMeeting`
+- `:StrikedIngestMeetingIcs[!] [path-or-folder]`
 - `:StrikedJournal {YYYY-MM-DD}`
 - `:StrikedJournalPrompt`
 - `:StrikedJournalToday`
@@ -189,6 +212,7 @@ If sprint `startDate` or `endDate` is left empty in the prompt flow, it defaults
 - `<leader>s?` question tasks
 - `<leader>sn` `n` tasks
 - `<leader>sf` focused items
+- `<leader>jm` import latest meeting ICS
 - `<leader>jt` journal today
 - `<leader>jn` journal tomorrow
 - `<leader>jy` journal yesterday
@@ -233,6 +257,8 @@ striked.prompt_add_bookmark(opts)
 striked.create_topic({ title = "Example" })
 striked.create_project({ title = "Example" })
 striked.create_sprint({ title = "Sprint 42", project = "", startDate = "", endDate = "" })
+striked.create_meeting({ title = "Weekly Sync", project = "", date = "2026-06-22", fullDay = false, attendees = {} })
+striked.ingest_meeting_ics({ path = "~/Downloads/invite.ics", delete_source = true, open = true })
 striked.open_journal({ date = "2026-06-11" })
 striked.journal_today(opts)
 striked.journal_tomorrow(opts)
@@ -242,6 +268,35 @@ striked.journal_previous(opts)
 striked.build_log({ startDate = "2026-06-01", endDate = "2026-06-30" })
 striked.print_focused(opts)
 ```
+
+## Meeting Import
+
+`striked.ingest_meeting_ics()` accepts either:
+
+- `path` to a specific `.ics` file
+- `path` to a directory
+- `folder` to a directory
+- no source at all, in which case it uses `~/Downloads`
+
+When a directory is used, the importer selects the newest `.ics` file by created/modified time.
+
+Default behavior:
+
+- import the selected `.ics`
+- create or update a meeting note under `meetings/`
+- open the created or updated note in the current buffer
+- delete the consumed `.ics`
+
+Options:
+
+- `open = false` keeps the current buffer unchanged
+- `delete_source = false` preserves the consumed `.ics`
+
+For the command form, `:StrikedIngestMeetingIcs!` is the keep-source variant.
+
+If the importer sees the same meeting occurrence again, it finds the existing note through `UID + RECURRENCE-ID` and updates only the frontmatter, leaving the note body untouched.
+
+`X-ALT-DESC` is used as a fallback to improve Teams metadata extraction when the plain `DESCRIPTION` does not contain everything needed.
 
 ## Reporting
 
@@ -283,6 +338,7 @@ Then in Neovim:
 :StrikedTasksSlash
 :StrikedTasksDone
 :StrikedFocused
+:StrikedIngestMeetingIcs!
 :StrikedJournalToday
 :StrikedLog
 ```
