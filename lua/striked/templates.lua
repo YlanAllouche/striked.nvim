@@ -1,9 +1,11 @@
 local M = {}
 local dates = require("striked.dates")
+local frontmatter = require("striked.frontmatter")
 
 local seeded = false
 local directories = {
   journal = "journal",
+  meeting = "meetings",
   topic = "topics",
   project = "projects",
   sprint = "sprints",
@@ -26,26 +28,8 @@ local function ensure_seeded()
   seeded = true
 end
 
-local function yaml_string(value)
-  return string.format("%q", tostring(value or ""))
-end
-
-local function frontmatter(fields)
-  local lines = { "---" }
-
-  for _, field in ipairs(fields) do
-    local value = field.raw and tostring(field.value or "") or yaml_string(field.value)
-    table.insert(lines, string.format("%s: %s", field.key, value))
-  end
-
-  table.insert(lines, "---")
-  table.insert(lines, "")
-
-  return lines
-end
-
 local function merge_lines(fields, body)
-  local lines = frontmatter(fields)
+  local lines = frontmatter.render(fields)
   for _, line in ipairs(body or {}) do
     table.insert(lines, line)
   end
@@ -66,10 +50,11 @@ local function render_topic(opts)
   return {
     directory = directories.topic,
     filename = opts.id .. ".md",
-    lines = merge_lines({
+    fields = {
       { key = "id", value = opts.id, raw = true },
       { key = "title", value = title_required("topic", opts) },
-    }, {}),
+    },
+    body = {},
   }
 end
 
@@ -77,10 +62,11 @@ local function render_project(opts)
   return {
     directory = directories.project,
     filename = opts.id .. ".md",
-    lines = merge_lines({
+    fields = {
       { key = "id", value = opts.id, raw = true },
       { key = "title", value = title_required("project", opts) },
-    }, {}),
+    },
+    body = {},
   }
 end
 
@@ -92,13 +78,14 @@ local function render_sprint(opts)
   return {
     directory = directories.sprint,
     filename = opts.id .. ".md",
-    lines = merge_lines({
+    fields = {
       { key = "id", value = opts.id, raw = true },
       { key = "title", value = title_required("sprint", opts) },
       { key = "project", value = opts.project or "" },
       { key = "startDate", value = start_date ~= "" and start_date or default_date, raw = true },
       { key = "endDate", value = end_date ~= "" and end_date or default_date, raw = true },
-    }, {
+    },
+    body = {
       "# Retro",
       "",
       "## achievements",
@@ -109,7 +96,74 @@ local function render_sprint(opts)
       "",
       "# Planning",
       "",
-    }),
+    },
+  }
+end
+
+local function render_meeting(opts)
+  local date = trim(opts.date)
+  if date == "" then
+    date = dates.today()
+  elseif not dates.is_valid(date) then
+    error(string.format("striked.nvim requires a valid meeting date, got %q", opts.date or ""))
+  end
+
+  local fields = {
+    { key = "id", value = opts.id, raw = true },
+    { key = "title", value = title_required("meeting", opts) },
+    { key = "project", value = opts.project or "" },
+    { key = "date", value = date, raw = true },
+    { key = "startAt", value = opts.startAt or opts.start_at or "" },
+    { key = "endAt", value = opts.endAt or opts.end_at or "" },
+    { key = "fullDay", value = opts.fullDay == true },
+  }
+
+  if trim(opts.seriesId or opts.series_id) ~= "" then
+    table.insert(fields, { key = "seriesId", value = opts.seriesId or opts.series_id })
+  end
+
+  if trim(opts.occurrenceId or opts.occurrence_id) ~= "" then
+    table.insert(fields, { key = "occurrenceId", value = opts.occurrenceId or opts.occurrence_id, raw = true })
+  end
+
+  if trim(opts.sourceKey or opts.source_key) ~= "" then
+    table.insert(fields, { key = "sourceKey", value = opts.sourceKey or opts.source_key })
+  end
+
+  if trim(opts.status) ~= "" then
+    table.insert(fields, { key = "status", value = opts.status, raw = true })
+  end
+
+  if trim(opts.location) ~= "" then
+    table.insert(fields, { key = "location", value = opts.location })
+  end
+
+  if trim(opts.joinUrl or opts.join_url) ~= "" then
+    table.insert(fields, { key = "joinUrl", value = opts.joinUrl or opts.join_url })
+  end
+
+  if opts.organizer and next(opts.organizer) then
+    table.insert(fields, { key = "organizer", value = opts.organizer })
+  end
+
+  table.insert(fields, { key = "attendees", value = opts.attendees or {} })
+
+  if opts.teams and next(opts.teams) then
+    table.insert(fields, { key = "teams", value = opts.teams })
+  end
+
+  return {
+    directory = directories.meeting,
+    filename = opts.id .. ".md",
+    fields = fields,
+    body = {
+      "# Notes",
+      "",
+      "# Decisions",
+      "",
+      "# Actions",
+      "",
+    },
   }
 end
 
@@ -122,9 +176,10 @@ local function render_journal(opts)
   return {
     directory = directories.journal,
     filename = date .. ".md",
-    lines = merge_lines({
+    fields = {
       { key = "title", value = date },
-    }, {
+    },
+    body = {
       "# Brief",
       "",
       "## yesterday",
@@ -135,12 +190,13 @@ local function render_journal(opts)
       "",
       "# Tasks",
       "",
-    }),
+    },
   }
 end
 
 local renderers = {
   journal = render_journal,
+  meeting = render_meeting,
   topic = render_topic,
   project = render_project,
   sprint = render_sprint,
@@ -180,7 +236,10 @@ function M.render(kind, opts)
     error("striked.nvim requires opts.id when rendering note templates")
   end
 
-  return renderer(opts)
+  local rendered = renderer(opts)
+  rendered.lines = merge_lines(rendered.fields, rendered.body)
+
+  return rendered
 end
 
 return M

@@ -6,10 +6,15 @@ local defaults = {
     root = "~/share/notes",
     directories = {
       journal = "journal",
+      meetings = "meetings",
       sprints = "sprints",
       topics = "topics",
       projects = "projects",
     },
+  },
+  meeting = {
+    downloads_root = "~/Downloads",
+    delete_ics_after_import = true,
   },
   mappings = {
     enabled = true,
@@ -20,6 +25,7 @@ local defaults = {
     tasks_question = "<leader>s?",
     tasks_n = "<leader>sn",
     focused = "<leader>sf",
+    meeting_import = "<leader>jm",
     journal_today = "<leader>jt",
     journal_tomorrow = "<leader>jn",
     journal_yesterday = "<leader>jy",
