@@ -671,6 +671,126 @@ local function markdown_link(title, url)
   return string.format("[%s](<%s>)", label, target)
 end
 
+local function escape_html(text)
+  local escaped = tostring(text or "")
+  escaped = escaped:gsub("&", "&amp;")
+  escaped = escaped:gsub("<", "&lt;")
+  escaped = escaped:gsub(">", "&gt;")
+  escaped = escaped:gsub('"', "&quot;")
+  return escaped
+end
+
+local function escape_markdown_table_cell(text)
+  local escaped = tostring(text or "")
+  escaped = escaped:gsub("\r", "")
+  escaped = escaped:gsub("\n", " ")
+  escaped = escaped:gsub("|", "\\|")
+  return escaped
+end
+
+local function trim_frontmatter_value_line(line)
+  local normalized = tostring(line or "")
+  if normalized:sub(1, 2) == "  " then
+    normalized = normalized:sub(3)
+  end
+
+  normalized = normalized:gsub("%s+$", "")
+  return normalized
+end
+
+local function frontmatter_rows(lines)
+  local rows = {}
+  local current
+
+  for _, line in ipairs(lines or {}) do
+    local key, value = line:match("^([^:%s][^:]-):%s*(.-)%s*$")
+    if key then
+      if current then
+        table.insert(rows, current)
+      end
+
+      current = {
+        key = trim(key),
+        values = {},
+      }
+
+      if value ~= "" then
+        table.insert(current.values, value)
+      end
+    elseif current then
+      local nested = trim_frontmatter_value_line(line)
+      if nested ~= "" then
+        table.insert(current.values, nested)
+      end
+    end
+  end
+
+  if current then
+    table.insert(rows, current)
+  end
+
+  return rows
+end
+
+local function render_frontmatter_markdown_table(lines)
+  local rows = frontmatter_rows(lines)
+  if #rows == 0 then
+    return {}
+  end
+
+  local rendered = {
+    "## Metadata",
+    "",
+    "| Field | Value |",
+    "| --- | --- |",
+  }
+
+  for _, row in ipairs(rows) do
+    table.insert(rendered, string.format(
+      "| %s | %s |",
+      escape_markdown_table_cell(row.key),
+      escape_markdown_table_cell(table.concat(row.values, " ; "))
+    ))
+  end
+
+  table.insert(rendered, "")
+  return rendered
+end
+
+local function render_frontmatter_html_table(lines)
+  local rows = frontmatter_rows(lines)
+  if #rows == 0 then
+    return {}
+  end
+
+  local rendered = {
+    "## Metadata",
+    "",
+    "<table>",
+    "<thead><tr><th>Field</th><th>Value</th></tr></thead>",
+    "<tbody>",
+  }
+
+  for _, row in ipairs(rows) do
+    local values = {}
+    for _, value in ipairs(row.values) do
+      table.insert(values, escape_html(value))
+    end
+
+    local value_html = table.concat(values, "<br />")
+    table.insert(rendered, string.format(
+      "<tr><td>%s</td><td>%s</td></tr>",
+      escape_html(row.key),
+      value_html
+    ))
+  end
+
+  table.insert(rendered, "</tbody>")
+  table.insert(rendered, "</table>")
+  table.insert(rendered, "")
+  return rendered
+end
+
 local function normalize_markdown_line(line)
   local item = parser.parse_line(line)
   if not item then
@@ -696,12 +816,11 @@ local function normalize_markdown_line(line)
   return prefix .. title
 end
 
-local function normalize_markdown_for_rich_clipboard(text)
-  local _, body_lines = frontmatter.split(split_text_lines(text))
+local function normalize_markdown_body_lines(body_lines)
   local normalized = {}
   local fence_marker
 
-  for _, line in ipairs(body_lines) do
+  for _, line in ipairs(body_lines or {}) do
     local marker = line:match("^%s*([`~])%1%1+")
     if marker then
       if not fence_marker then
@@ -718,7 +837,40 @@ local function normalize_markdown_for_rich_clipboard(text)
     end
   end
 
-  return table.concat(normalized, "\n")
+  return normalized
+end
+
+local function normalize_markdown_for_rich_clipboard(text, opts)
+  local frontmatter_lines, body_lines, has_frontmatter = frontmatter.split(split_text_lines(text))
+  local normalized_body = normalize_markdown_body_lines(body_lines)
+  local plain_lines = vim.deepcopy(normalized_body)
+  local pandoc_lines = vim.deepcopy(normalized_body)
+
+  if opts and opts.render_frontmatter_table == true and has_frontmatter then
+    plain_lines = vim.list_extend(render_frontmatter_markdown_table(frontmatter_lines), plain_lines)
+    pandoc_lines = vim.list_extend(render_frontmatter_html_table(frontmatter_lines), pandoc_lines)
+  end
+
+  return {
+    text = table.concat(plain_lines, "\n"),
+    pandoc = table.concat(pandoc_lines, "\n"),
+  }
+end
+
+local function is_full_buffer_region(opts)
+  if opts.full_buffer ~= nil then
+    return opts.full_buffer == true
+  end
+
+  if opts.text ~= nil then
+    return false
+  end
+
+  local buffer = opts.buffer or vim.api.nvim_get_current_buf()
+  local line_count = vim.api.nvim_buf_line_count(buffer)
+  local line1 = math.max(opts.line1 or 1, 1)
+  local line2 = math.min(opts.line2 or line_count, line_count)
+  return line1 == 1 and line2 == line_count
 end
 
 local function markdown_to_html(text)
@@ -753,15 +905,17 @@ local function copy_markdown_region(opts)
     return nil
   end
 
-  local normalized = normalize_markdown_for_rich_clipboard(source)
-  if trim(normalized) == "" then
+  local normalized = normalize_markdown_for_rich_clipboard(source, {
+    render_frontmatter_table = is_full_buffer_region(opts),
+  })
+  if trim(normalized.text) == "" then
     vim.notify("striked.nvim found no markdown content after normalization", vim.log.levels.INFO)
     return nil
   end
 
-  local html = markdown_to_html(normalized)
+  local html = markdown_to_html(normalized.pandoc)
   local result, err = clipboard.copy_rich({
-    text = normalized,
+    text = normalized.text,
     html = html,
     html_only = opts.html_only == true,
   })
@@ -774,7 +928,8 @@ local function copy_markdown_region(opts)
 
   return {
     source = source,
-    normalized = normalized,
+    normalized = normalized.text,
+    pandoc = normalized.pandoc,
     html = html,
     backend = result.backend,
     html_only = result.html_only,
@@ -794,12 +949,12 @@ local function copy_clipboard_text(opts)
   end
 
   local normalized = normalize_markdown_for_rich_clipboard(source)
-  if trim(normalized) == "" then
+  if trim(normalized.text) == "" then
     vim.notify("striked.nvim found no markdown content after normalization", vim.log.levels.INFO)
     return nil
   end
 
-  local html = markdown_to_html(normalized)
+  local html = markdown_to_html(normalized.pandoc)
   local result, err = clipboard.copy_rich({
     text = source,
     html = html,
@@ -814,7 +969,8 @@ local function copy_clipboard_text(opts)
 
   return {
     source = source,
-    normalized = normalized,
+    normalized = normalized.text,
+    pandoc = normalized.pandoc,
     html = html,
     backend = result.backend,
     html_only = result.html_only,

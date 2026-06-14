@@ -5,6 +5,7 @@ local module_source = debug.getinfo(1, "S").source
 local module_path = module_source:sub(1, 1) == "@" and module_source:sub(2) or module_source
 local plugin_root = vim.fn.fnamemodify(module_path, ":h:h:h")
 local wayland_helper_path = plugin_root .. "/python/striked_wayland_clipboard.py"
+local macos_helper_path = plugin_root .. "/swift/striked_macos_clipboard.swift"
 local WAYLAND_HELPER_TIMEOUT_SECONDS = 300
 local wayland_helper_pid
 local wayland_helper_available
@@ -21,29 +22,6 @@ copy(item)
 
 local COPYQ_READ_SCRIPT = [[
 print(str(clipboard()))
-]]
-
-local SWIFT_WRITE_SCRIPT = [[
-import AppKit
-import Foundation
-
-struct Payload: Decodable {
-    let text: String?
-    let html: String
-    let html_only: Bool?
-}
-
-let data = FileHandle.standardInput.readDataToEndOfFile()
-let payload = try JSONDecoder().decode(Payload.self, from: data)
-let pasteboard = NSPasteboard.general
-
-pasteboard.clearContents()
-
-if payload.html_only != true {
-    pasteboard.setString(payload.text ?? "", forType: .string)
-}
-
-pasteboard.setString(payload.html, forType: .html)
 ]]
 
 local POWERSHELL_WRITE_SCRIPT = [[
@@ -127,7 +105,7 @@ local function is_wayland()
 end
 
 local function has_swift()
-  return sysname() == "Darwin" and uv.fs_stat("/usr/bin/swift") ~= nil
+  return sysname() == "Darwin" and uv.fs_stat("/usr/bin/swift") ~= nil and uv.fs_stat(macos_helper_path) ~= nil
 end
 
 local function close_handle(handle)
@@ -315,12 +293,12 @@ local function read_backend()
     return { name = powershell, kind = "powershell" }
   end
 
-  if executable("copyq") then
-    return { name = "copyq", kind = "copyq" }
-  end
-
   if sysname() == "Darwin" and executable("pbpaste") then
     return { name = "pbpaste", kind = "pbpaste" }
+  end
+
+  if executable("copyq") then
+    return { name = "copyq", kind = "copyq" }
   end
 
   if executable("wl-paste") then
@@ -340,12 +318,12 @@ local function write_backend()
     return { name = powershell, kind = "powershell", dual_format = true }
   end
 
-  if executable("copyq") then
-    return { name = "copyq", kind = "copyq", dual_format = true }
-  end
-
   if has_swift() then
     return { name = "swift", kind = "swift", dual_format = true }
+  end
+
+  if executable("copyq") then
+    return { name = "copyq", kind = "copyq", dual_format = true }
   end
 
   if has_wayland_helper() then
@@ -402,7 +380,7 @@ function M.copy_rich(payload)
   if backend.kind == "copyq" then
     result = system_result({ "copyq", "eval", COPYQ_WRITE_SCRIPT }, vim.json.encode(effective))
   elseif backend.kind == "swift" then
-    result = system_result({ "/usr/bin/swift", "-" }, vim.json.encode(effective))
+    result = system_result({ "/usr/bin/swift", macos_helper_path }, vim.json.encode(effective))
   elseif backend.kind == "powershell" then
     result = system_result({ backend.name, "-NoProfile", "-STA", "-Command", POWERSHELL_WRITE_SCRIPT }, vim.json.encode(effective))
   elseif backend.kind == "wayland_helper" then

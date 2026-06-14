@@ -29,7 +29,7 @@ For the rich clipboard proof of concept, `pandoc` is required.
 Clipboard backends:
 
 - Linux: `copyq` is recommended for `text/plain + text/html`; on Wayland, `python3-gi` with GTK4 is also supported for dual-format clipboard publishing
-- macOS: `/usr/bin/swift` is used to publish plain text plus HTML
+- macOS: a checked-in `/usr/bin/swift` helper is used to publish plain text plus HTML; `copyq` is not required
 - Windows and WSL: `powershell(.exe)` is used to publish plain text plus HTML
 
 ## Installation
@@ -366,6 +366,7 @@ Current normalization before `pandoc`:
 - strips inline `[field:: value]` metadata
 - maps custom task states such as `- [ ]`, `- [x]`, `- [/]`, `- [?]`, and `- [n]` to readable bullet text
 - converts bookmark items such as `- [@] Title [url:: ...]` to regular markdown links
+- when copying the whole buffer, renders YAML frontmatter as a metadata table before the body content
 
 If a dual-format clipboard backend is unavailable, the default rich-copy commands report that explicitly. Use the `HtmlOnly` variants when you intentionally want an HTML-only clipboard payload.
 
