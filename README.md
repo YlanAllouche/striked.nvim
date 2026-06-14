@@ -364,7 +364,7 @@ Current normalization before `pandoc`:
 
 - strips YAML frontmatter
 - strips inline `[field:: value]` metadata
-- maps custom task states such as `- [ ]`, `- [x]`, `- [/]`, `- [?]`, and `- [n]` to readable bullet text
+- maps custom task states such as `- [ ]`, `- [x]`, `- [/]`, `- [?]`, and `- [n]` to readable emoji bullets, with done states rendered as strikethrough text
 - converts bookmark items such as `- [@] Title [url:: ...]` to regular markdown links
 - when copying the whole buffer, renders YAML frontmatter as a metadata table before the body content
 

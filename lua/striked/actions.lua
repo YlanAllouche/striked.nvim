@@ -22,6 +22,12 @@ local rich_task_symbols = {
   ["?"] = "❓",
   ["n"] = "📝",
 }
+local rich_task_done_statuses = {
+  ["x"] = true,
+  ["-"] = true,
+  ["l"] = true,
+  ["R"] = true,
+}
 local legacy_meeting_scalar_keys = {
   occurrenceId = true,
   joinUrl = true,
@@ -808,6 +814,10 @@ local function normalize_markdown_line(line)
   if symbol then
     if title == "" then
       return prefix .. symbol
+    end
+
+    if rich_task_done_statuses[item.status] then
+      title = string.format("~~%s~~", title)
     end
 
     return string.format("%s%s %s", prefix, symbol, title)
