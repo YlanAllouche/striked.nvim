@@ -652,7 +652,8 @@ end
 
 local function strip_inline_metadata_fields(line)
   local stripped = tostring(line or ""):gsub("%s*%[[%w_%-]+%s*::%s*.-%]", "")
-  return stripped:gsub("%s+$", "")
+  stripped = stripped:gsub("%s+$", "")
+  return stripped
 end
 
 local function markdown_link(title, url)

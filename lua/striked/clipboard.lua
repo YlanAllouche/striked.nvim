@@ -1,6 +1,13 @@
 local M = {}
 
 local uv = vim.uv or vim.loop
+local module_source = debug.getinfo(1, "S").source
+local module_path = module_source:sub(1, 1) == "@" and module_source:sub(2) or module_source
+local plugin_root = vim.fn.fnamemodify(module_path, ":h:h:h")
+local wayland_helper_path = plugin_root .. "/python/striked_wayland_clipboard.py"
+local WAYLAND_HELPER_TIMEOUT_SECONDS = 300
+local wayland_helper_pid
+local wayland_helper_available
 
 local COPYQ_WRITE_SCRIPT = [[
 var payload = JSON.parse(str(input()))
@@ -115,8 +122,157 @@ local function is_wsl()
   return vim.env.WSL_DISTRO_NAME ~= nil or release:match("microsoft") ~= nil
 end
 
+local function is_wayland()
+  return not is_wsl() and vim.env.WAYLAND_DISPLAY ~= nil and vim.env.WAYLAND_DISPLAY ~= ""
+end
+
 local function has_swift()
   return sysname() == "Darwin" and uv.fs_stat("/usr/bin/swift") ~= nil
+end
+
+local function close_handle(handle)
+  if handle and not handle:is_closing() then
+    handle:close()
+  end
+end
+
+local function has_wayland_helper()
+  if wayland_helper_available ~= nil then
+    return wayland_helper_available
+  end
+
+  if not is_wayland() or not executable("python3") or uv.fs_stat(wayland_helper_path) == nil then
+    wayland_helper_available = false
+    return false
+  end
+
+  local result = system_result({
+    "python3",
+    "-c",
+    "import gi; gi.require_version('Gtk', '4.0'); gi.require_version('Gdk', '4.0'); from gi.repository import Gtk, Gdk, GLib",
+  })
+  wayland_helper_available = result.code == 0
+  return wayland_helper_available
+end
+
+local function stop_wayland_helper()
+  if not wayland_helper_pid then
+    return
+  end
+
+  pcall(uv.kill, wayland_helper_pid, (uv.constants and uv.constants.SIGTERM) or 15)
+  wayland_helper_pid = nil
+end
+
+local function spawn_wayland_helper(payload)
+  stop_wayland_helper()
+
+  local stdin = uv.new_pipe(false)
+  local stdout = uv.new_pipe(false)
+  local stderr = uv.new_pipe(false)
+  local handle
+  local state = {
+    pid = nil,
+    ready = false,
+    exited = false,
+    stderr = "",
+    stdout = "",
+    spawn_error = nil,
+  }
+
+  handle, state.pid = uv.spawn("python3", {
+    args = { wayland_helper_path },
+    stdio = { stdin, stdout, stderr },
+    detached = true,
+  }, function(code, signal)
+    state.exited = true
+    state.code = code
+    state.signal = signal
+    close_handle(stdin)
+    close_handle(stdout)
+    close_handle(stderr)
+    close_handle(handle)
+  end)
+
+  if not handle then
+    close_handle(stdin)
+    close_handle(stdout)
+    close_handle(stderr)
+    return nil, "striked.nvim could not start the Wayland clipboard helper"
+  end
+
+  stdout:read_start(function(err, data)
+    if err then
+      state.spawn_error = err
+      return
+    end
+
+    if data then
+      state.stdout = state.stdout .. data
+      if state.stdout:find("READY", 1, true) then
+        state.ready = true
+      end
+    end
+  end)
+
+  stderr:read_start(function(err, data)
+    if err then
+      state.spawn_error = err
+      return
+    end
+
+    if data then
+      state.stderr = state.stderr .. data
+    end
+  end)
+
+  stdin:write(vim.json.encode(vim.tbl_extend("force", payload, {
+    timeout_seconds = WAYLAND_HELPER_TIMEOUT_SECONDS,
+  })))
+  stdin:shutdown(function()
+    close_handle(stdin)
+  end)
+
+  local ok = vim.wait(1500, function()
+    return state.ready or state.exited or state.spawn_error ~= nil
+  end, 20)
+
+  if not ok or not state.ready then
+    if state.pid then
+      pcall(uv.kill, state.pid, (uv.constants and uv.constants.SIGTERM) or 15)
+    end
+
+    close_handle(stdin)
+    close_handle(stdout)
+    close_handle(stderr)
+    close_handle(handle)
+
+    local detail = trim(state.stderr)
+    if detail == "" then
+      detail = trim(state.stdout)
+    end
+    if detail == "" and state.spawn_error then
+      detail = tostring(state.spawn_error)
+    end
+    if detail == "" then
+      detail = "timeout while waiting for the clipboard helper"
+    end
+
+    return nil, string.format("striked.nvim clipboard copy failed: %s", detail)
+  end
+
+  wayland_helper_pid = state.pid
+  stdout:read_stop()
+  stderr:read_stop()
+  close_handle(stdout)
+  close_handle(stderr)
+  close_handle(handle)
+
+  return {
+    code = 0,
+    stdout = state.stdout,
+    stderr = state.stderr,
+  }
 end
 
 local function powershell_command()
@@ -192,6 +348,10 @@ local function write_backend()
     return { name = "swift", kind = "swift", dual_format = true }
   end
 
+  if has_wayland_helper() then
+    return { name = "python3-gtk", kind = "wayland_helper", dual_format = true }
+  end
+
   if executable("wl-copy") then
     return { name = "wl-copy", kind = "wayland", dual_format = false }
   end
@@ -204,7 +364,7 @@ local function write_backend()
 end
 
 local function backend_error_message()
-  return "striked.nvim could not find a clipboard backend. Install CopyQ for dual-format clipboard support, or ensure a platform clipboard tool is available."
+  return "striked.nvim could not find a clipboard backend. Install CopyQ, or ensure a supported platform clipboard tool is available."
 end
 
 local function command_error(result, description)
@@ -230,13 +390,23 @@ function M.copy_rich(payload)
     html_only = payload.html_only == true or backend.dual_format ~= true,
   }
 
+  if payload.html_only ~= true and backend.dual_format ~= true then
+    return nil, string.format(
+      "striked.nvim rich copy needs a dual-format clipboard backend. Install CopyQ, or use the HtmlOnly command with %s.",
+      backend.name
+    )
+  end
+
   local result
+  local helper_err
   if backend.kind == "copyq" then
     result = system_result({ "copyq", "eval", COPYQ_WRITE_SCRIPT }, vim.json.encode(effective))
   elseif backend.kind == "swift" then
     result = system_result({ "/usr/bin/swift", "-" }, vim.json.encode(effective))
   elseif backend.kind == "powershell" then
     result = system_result({ backend.name, "-NoProfile", "-STA", "-Command", POWERSHELL_WRITE_SCRIPT }, vim.json.encode(effective))
+  elseif backend.kind == "wayland_helper" then
+    result, helper_err = spawn_wayland_helper(effective)
   elseif backend.kind == "wayland" then
     result = system_result({ "wl-copy", "--type", "text/html" }, effective.html)
   elseif backend.kind == "x11" then
@@ -244,6 +414,10 @@ function M.copy_rich(payload)
   end
 
   if not result or result.code ~= 0 then
+    if helper_err then
+      return nil, helper_err
+    end
+
     return nil, command_error(result or { stdout = "", stderr = "", code = -1 }, "clipboard copy")
   end
 
@@ -270,7 +444,7 @@ function M.read_text()
   elseif backend.kind == "pbpaste" then
     result = system_result({ "pbpaste" })
   elseif backend.kind == "wayland" then
-    result = system_result({ "wl-paste", "--no-newline", "--type", "text/plain" })
+    result = system_result({ "wl-paste", "--no-newline", "--type", "text" })
   elseif backend.kind == "x11" then
     result = system_result({ "xclip", "-selection", "clipboard", "-o" })
   end

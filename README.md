@@ -28,7 +28,7 @@ For the rich clipboard proof of concept, `pandoc` is required.
 
 Clipboard backends:
 
-- Linux: `copyq` is recommended for `text/plain + text/html`; otherwise `wl-copy` or `xclip` fall back to HTML-only
+- Linux: `copyq` is recommended for `text/plain + text/html`; on Wayland, `python3-gi` with GTK4 is also supported for dual-format clipboard publishing
 - macOS: `/usr/bin/swift` is used to publish plain text plus HTML
 - Windows and WSL: `powershell(.exe)` is used to publish plain text plus HTML
 
@@ -355,7 +355,7 @@ The inserted output is a plain markdown list with statuses and metadata removed:
 
 Proof-of-concept commands:
 
-- `:'<,'>StrikedCopyMarkdownRich` converts the selected markdown line range, or the whole buffer when no range is given, to HTML with `pandoc` and tries to publish both plain text and HTML to the system clipboard
+- `:'<,'>StrikedCopyMarkdownRich` converts the selected markdown line range, or the whole buffer when no range is given, to HTML with `pandoc` and publishes both plain text and HTML to the system clipboard when a dual-format backend is available
 - `:'<,'>StrikedCopyMarkdownHtmlOnly` does the same conversion but publishes HTML only
 - `:StrikedClipboardRich` reads the current system clipboard text, converts it with `pandoc`, then republishes it as rich clipboard content while preserving the original plain-text payload
 - `:StrikedClipboardHtmlOnly` upgrades the current clipboard text to HTML only
@@ -367,7 +367,7 @@ Current normalization before `pandoc`:
 - maps custom task states such as `- [ ]`, `- [x]`, `- [/]`, `- [?]`, and `- [n]` to readable bullet text
 - converts bookmark items such as `- [@] Title [url:: ...]` to regular markdown links
 
-If a dual-format clipboard backend is unavailable, the default rich-copy command falls back to HTML-only and notifies which backend was used.
+If a dual-format clipboard backend is unavailable, the default rich-copy commands report that explicitly. Use the `HtmlOnly` variants when you intentionally want an HTML-only clipboard payload.
 
 ## Local Testing
 
