@@ -15,6 +15,7 @@ A Neovim plugin for scanning markdown tasks and note metadata from a shared note
 - Imports manually exported Teams/Outlook `.ics` files into meeting notes
 - Supports inserting bookmarks and surfacing similar existing bookmarks first
 - Lets bookmark and focused Telescope pickers open URLs directly with `<C-o>`
+- Adds a proof-of-concept rich clipboard flow for markdown-to-Teams paste workflows
 
 ## Requirements
 
@@ -22,6 +23,14 @@ A Neovim plugin for scanning markdown tasks and note metadata from a shared note
 - [`nvim-telescope/telescope.nvim`](https://github.com/nvim-telescope/telescope.nvim) for picker commands and default mappings
 
 The core scan, query, note creation, and log APIs work without Telescope, but picker commands and default mappings expect Telescope.
+
+For the rich clipboard proof of concept, `pandoc` is required.
+
+Clipboard backends:
+
+- Linux: `copyq` is recommended for `text/plain + text/html`; otherwise `wl-copy` or `xclip` fall back to HTML-only
+- macOS: `/usr/bin/swift` is used to publish plain text plus HTML
+- Windows and WSL: `powershell(.exe)` is used to publish plain text plus HTML
 
 ## Installation
 
@@ -214,6 +223,10 @@ Imported recurring meeting occurrences append the occurrence date to the note ti
 - `:StrikedJournalNext`
 - `:StrikedJournalPrevious`
 - `:StrikedLog`
+- `:'<,'>StrikedCopyMarkdownRich`
+- `:'<,'>StrikedCopyMarkdownHtmlOnly`
+- `:StrikedClipboardRich`
+- `:StrikedClipboardHtmlOnly`
 
 `StrikedTasksOpen` and `StrikedTasksSlash` both open the combined active-task view for statuses ` ` and `/`.
 
@@ -282,6 +295,10 @@ striked.journal_next(opts)
 striked.journal_previous(opts)
 striked.build_log({ startDate = "2026-06-01", endDate = "2026-06-30" })
 striked.print_focused(opts)
+striked.copy_markdown_rich({ line1 = 1, line2 = 20 })
+striked.copy_markdown_html_only({ line1 = 1, line2 = 20 })
+striked.upgrade_clipboard_rich()
+striked.upgrade_clipboard_html_only()
 ```
 
 ## Meeting Import
@@ -333,6 +350,24 @@ The inserted output is a plain markdown list with statuses and metadata removed:
 ```
 
 `striked.print_focused()` and `:StrikedFocusedPrint` insert the same stripped markdown list format for all `[focus:: true]` items.
+
+## Rich Clipboard
+
+Proof-of-concept commands:
+
+- `:'<,'>StrikedCopyMarkdownRich` converts the selected markdown line range, or the whole buffer when no range is given, to HTML with `pandoc` and tries to publish both plain text and HTML to the system clipboard
+- `:'<,'>StrikedCopyMarkdownHtmlOnly` does the same conversion but publishes HTML only
+- `:StrikedClipboardRich` reads the current system clipboard text, converts it with `pandoc`, then republishes it as rich clipboard content while preserving the original plain-text payload
+- `:StrikedClipboardHtmlOnly` upgrades the current clipboard text to HTML only
+
+Current normalization before `pandoc`:
+
+- strips YAML frontmatter
+- strips inline `[field:: value]` metadata
+- maps custom task states such as `- [ ]`, `- [x]`, `- [/]`, `- [?]`, and `- [n]` to readable bullet text
+- converts bookmark items such as `- [@] Title [url:: ...]` to regular markdown links
+
+If a dual-format clipboard backend is unavailable, the default rich-copy command falls back to HTML-only and notifies which backend was used.
 
 ## Local Testing
 

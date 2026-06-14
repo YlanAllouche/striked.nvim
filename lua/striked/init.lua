@@ -185,6 +185,30 @@ local function register_commands()
     M.print_focused()
   end, {})
 
+  vim.api.nvim_create_user_command("StrikedCopyMarkdownRich", function(command_opts)
+    M.copy_markdown_rich({
+      buffer = vim.api.nvim_get_current_buf(),
+      line1 = command_opts.line1,
+      line2 = command_opts.line2,
+    })
+  end, { range = "%" })
+
+  vim.api.nvim_create_user_command("StrikedCopyMarkdownHtmlOnly", function(command_opts)
+    M.copy_markdown_html_only({
+      buffer = vim.api.nvim_get_current_buf(),
+      line1 = command_opts.line1,
+      line2 = command_opts.line2,
+    })
+  end, { range = "%" })
+
+  vim.api.nvim_create_user_command("StrikedClipboardRich", function()
+    M.upgrade_clipboard_rich()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedClipboardHtmlOnly", function()
+    M.upgrade_clipboard_html_only()
+  end, {})
+
   runtime.commands_registered = true
 end
 
@@ -347,6 +371,22 @@ end
 
 function M.print_focused(opts)
   return actions.print_focused(opts)
+end
+
+function M.copy_markdown_rich(opts)
+  return actions.copy_markdown_rich(opts)
+end
+
+function M.copy_markdown_html_only(opts)
+  return actions.copy_markdown_html_only(opts)
+end
+
+function M.upgrade_clipboard_rich(opts)
+  return actions.upgrade_clipboard_rich(opts)
+end
+
+function M.upgrade_clipboard_html_only(opts)
+  return actions.upgrade_clipboard_html_only(opts)
 end
 
 function M.prompt_build_log(opts)

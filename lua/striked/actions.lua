@@ -1,4 +1,5 @@
 local config = require("striked.config")
+local clipboard = require("striked.clipboard")
 local frontmatter = require("striked.frontmatter")
 local ics = require("striked.ics")
 local parser = require("striked.parser")
@@ -11,6 +12,16 @@ local templates = require("striked.templates")
 local M = {}
 local uv = vim.uv or vim.loop
 local attendee_category_order = { "required", "optional", "chair", "nonParticipant", "tentative", "declined", "delegated", "other" }
+local rich_task_symbols = {
+  [" "] = "☐",
+  ["x"] = "☑",
+  ["-"] = "☑",
+  ["l"] = "☑",
+  ["R"] = "☑",
+  ["/"] = "◐",
+  ["?"] = "❓",
+  ["n"] = "📝",
+}
 local legacy_meeting_scalar_keys = {
   occurrenceId = true,
   joinUrl = true,
@@ -22,6 +33,28 @@ local legacy_meeting_scalar_keys = {
 
 local function trim(text)
   return vim.trim(text or "")
+end
+
+local function system_result(args, stdin)
+  if vim.system then
+    local result = vim.system(args, {
+      stdin = stdin,
+      text = true,
+    }):wait()
+
+    return {
+      code = result.code,
+      stdout = result.stdout or "",
+      stderr = result.stderr or "",
+    }
+  end
+
+  local stdout = vim.fn.system(args, stdin or "")
+  return {
+    code = vim.v.shell_error,
+    stdout = stdout or "",
+    stderr = "",
+  }
 end
 
 local function listify(value)
@@ -563,6 +596,232 @@ local function insert_lines_at_cursor(lines, opts)
   return #lines
 end
 
+local function split_text_lines(text)
+  return vim.split(tostring(text or ""), "\n", { plain = true, trimempty = false })
+end
+
+local function visual_region_text(buffer, line1, line2)
+  local start_pos = vim.fn.getpos("'<")
+  local end_pos = vim.fn.getpos("'>")
+  local start_line = start_pos[2]
+  local end_line = end_pos[2]
+
+  if start_line == 0 or end_line == 0 then
+    return nil
+  end
+
+  if math.min(start_line, end_line) ~= line1 or math.max(start_line, end_line) ~= line2 then
+    return nil
+  end
+
+  if start_pos[3] >= vim.v.maxcol or end_pos[3] >= vim.v.maxcol then
+    return nil
+  end
+
+  local sline = start_pos[2]
+  local scol = start_pos[3]
+  local eline = end_pos[2]
+  local ecol = end_pos[3]
+
+  if sline > eline or (sline == eline and scol > ecol) then
+    sline, eline = eline, sline
+    scol, ecol = ecol, scol
+  end
+
+  local chunks = vim.api.nvim_buf_get_text(buffer, sline - 1, scol - 1, eline - 1, ecol, {})
+  return table.concat(chunks, "\n")
+end
+
+local function buffer_range_text(opts)
+  if opts.text ~= nil then
+    return tostring(opts.text)
+  end
+
+  local buffer = opts.buffer or vim.api.nvim_get_current_buf()
+  local line_count = vim.api.nvim_buf_line_count(buffer)
+  local line1 = math.max(opts.line1 or 1, 1)
+  local line2 = math.min(opts.line2 or line_count, line_count)
+
+  local visual_text = opts.use_visual == true and visual_region_text(buffer, line1, line2) or nil
+  if visual_text ~= nil then
+    return visual_text
+  end
+
+  return table.concat(vim.api.nvim_buf_get_lines(buffer, line1 - 1, line2, false), "\n")
+end
+
+local function strip_inline_metadata_fields(line)
+  local stripped = tostring(line or ""):gsub("%s*%[[%w_%-]+%s*::%s*.-%]", "")
+  return stripped:gsub("%s+$", "")
+end
+
+local function markdown_link(title, url)
+  local target = trim(url)
+  if target == "" then
+    return trim(title)
+  end
+
+  local label = trim(title)
+  if label == "" then
+    label = target
+  end
+
+  label = label:gsub("\\", "\\\\"):gsub("%[", "\\["):gsub("%]", "\\]")
+  return string.format("[%s](<%s>)", label, target)
+end
+
+local function normalize_markdown_line(line)
+  local item = parser.parse_line(line)
+  if not item then
+    return strip_inline_metadata_fields(line)
+  end
+
+  local prefix = string.format("%s%s ", item.indent or "", item.marker or "-")
+  local title = trim(item.title)
+
+  if item.status == "@" then
+    return prefix .. markdown_link(title, item.url)
+  end
+
+  local symbol = rich_task_symbols[item.status]
+  if symbol then
+    if title == "" then
+      return prefix .. symbol
+    end
+
+    return string.format("%s%s %s", prefix, symbol, title)
+  end
+
+  return prefix .. title
+end
+
+local function normalize_markdown_for_rich_clipboard(text)
+  local _, body_lines = frontmatter.split(split_text_lines(text))
+  local normalized = {}
+  local fence_marker
+
+  for _, line in ipairs(body_lines) do
+    local marker = line:match("^%s*([`~])%1%1+")
+    if marker then
+      if not fence_marker then
+        fence_marker = marker
+      elseif fence_marker == marker then
+        fence_marker = nil
+      end
+
+      table.insert(normalized, line)
+    elseif fence_marker then
+      table.insert(normalized, line)
+    else
+      table.insert(normalized, normalize_markdown_line(line))
+    end
+  end
+
+  return table.concat(normalized, "\n")
+end
+
+local function markdown_to_html(text)
+  if vim.fn.executable("pandoc") ~= 1 then
+    error("striked.nvim requires pandoc to convert markdown as rich text")
+  end
+
+  local result = system_result({ "pandoc", "--from", "gfm", "--to", "html", "--wrap=none" }, text)
+  if result.code ~= 0 then
+    local detail = trim(result.stderr) ~= "" and trim(result.stderr) or trim(result.stdout)
+    error(string.format("striked.nvim pandoc conversion failed: %s", detail ~= "" and detail or "unknown error"))
+  end
+
+  return trim(result.stdout)
+end
+
+local function notify_rich_clipboard(label, result)
+  local mode
+  if result.html_only then
+    mode = result.downgraded and "HTML only fallback" or "HTML only"
+  else
+    mode = "text + HTML"
+  end
+
+  vim.notify(string.format("striked.nvim copied %s using %s (%s)", label, result.backend, mode), vim.log.levels.INFO)
+end
+
+local function copy_markdown_region(opts)
+  local source = buffer_range_text(opts)
+  if trim(source) == "" then
+    vim.notify("striked.nvim found no markdown to copy", vim.log.levels.INFO)
+    return nil
+  end
+
+  local normalized = normalize_markdown_for_rich_clipboard(source)
+  if trim(normalized) == "" then
+    vim.notify("striked.nvim found no markdown content after normalization", vim.log.levels.INFO)
+    return nil
+  end
+
+  local html = markdown_to_html(normalized)
+  local result, err = clipboard.copy_rich({
+    text = normalized,
+    html = html,
+    html_only = opts.html_only == true,
+  })
+
+  if not result then
+    error(err)
+  end
+
+  notify_rich_clipboard("markdown", result)
+
+  return {
+    source = source,
+    normalized = normalized,
+    html = html,
+    backend = result.backend,
+    html_only = result.html_only,
+    downgraded = result.downgraded,
+  }
+end
+
+local function copy_clipboard_text(opts)
+  local source, read_result = clipboard.read_text()
+  if source == nil then
+    error(read_result)
+  end
+
+  if trim(source) == "" then
+    vim.notify("striked.nvim clipboard is empty", vim.log.levels.INFO)
+    return nil
+  end
+
+  local normalized = normalize_markdown_for_rich_clipboard(source)
+  if trim(normalized) == "" then
+    vim.notify("striked.nvim found no markdown content after normalization", vim.log.levels.INFO)
+    return nil
+  end
+
+  local html = markdown_to_html(normalized)
+  local result, err = clipboard.copy_rich({
+    text = source,
+    html = html,
+    html_only = opts.html_only == true,
+  })
+
+  if not result then
+    error(err)
+  end
+
+  notify_rich_clipboard("clipboard markdown", result)
+
+  return {
+    source = source,
+    normalized = normalized,
+    html = html,
+    backend = result.backend,
+    html_only = result.html_only,
+    downgraded = result.downgraded,
+    read_backend = read_result.backend,
+  }
+end
+
 local function journal_date(text)
   local value = trim(text)
   if value == "" then
@@ -1015,6 +1274,22 @@ function M.print_focused(opts)
     items = items,
     inserted = inserted,
   }
+end
+
+function M.copy_markdown_rich(opts)
+  return copy_markdown_region(opts or {})
+end
+
+function M.copy_markdown_html_only(opts)
+  return copy_markdown_region(vim.tbl_extend("force", opts or {}, { html_only = true }))
+end
+
+function M.upgrade_clipboard_rich(opts)
+  return copy_clipboard_text(opts or {})
+end
+
+function M.upgrade_clipboard_html_only(opts)
+  return copy_clipboard_text(vim.tbl_extend("force", opts or {}, { html_only = true }))
 end
 
 function M.prompt_build_log(opts)
