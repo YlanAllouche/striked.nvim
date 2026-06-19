@@ -91,6 +91,14 @@ local function system_result(args, stdin)
   }
 end
 
+local function copyq_running()
+  if not executable("copyq") then
+    return false
+  end
+
+  return system_result({ "copyq", "eval", "1" }).code == 0
+end
+
 local function sysname()
   return (uv.os_uname() or {}).sysname or ""
 end
@@ -293,12 +301,12 @@ local function read_backend()
     return { name = powershell, kind = "powershell" }
   end
 
-  if sysname() == "Darwin" and executable("pbpaste") then
-    return { name = "pbpaste", kind = "pbpaste" }
+  if copyq_running() then
+    return { name = "copyq", kind = "copyq" }
   end
 
-  if executable("copyq") then
-    return { name = "copyq", kind = "copyq" }
+  if sysname() == "Darwin" and executable("pbpaste") then
+    return { name = "pbpaste", kind = "pbpaste" }
   end
 
   if executable("wl-paste") then
@@ -318,12 +326,12 @@ local function write_backend()
     return { name = powershell, kind = "powershell", dual_format = true }
   end
 
-  if has_swift() then
-    return { name = "swift", kind = "swift", dual_format = true }
+  if copyq_running() then
+    return { name = "copyq", kind = "copyq", dual_format = true }
   end
 
-  if executable("copyq") then
-    return { name = "copyq", kind = "copyq", dual_format = true }
+  if has_swift() then
+    return { name = "swift", kind = "swift", dual_format = true }
   end
 
   if has_wayland_helper() then
@@ -434,6 +442,10 @@ function M.read_text()
   return result.stdout or "", {
     backend = backend.name,
   }
+end
+
+function M.copyq_running()
+  return copyq_running()
 end
 
 return M

@@ -360,6 +360,8 @@ Proof-of-concept commands:
 - `:StrikedClipboardRich` reads the current system clipboard text, converts it with `pandoc`, then republishes it as rich clipboard content while preserving the original plain-text payload
 - `:StrikedClipboardHtmlOnly` upgrades the current clipboard text to HTML only
 
+When rich clipboard publishing fails and `copyq` is not running, striked falls back to writing a temporary HTML preview file and opening it in the browser so the rendered content can still be copied manually into Teams.
+
 Current normalization before `pandoc`:
 
 - strips YAML frontmatter

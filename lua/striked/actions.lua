@@ -897,6 +897,73 @@ local function markdown_to_html(text)
   return trim(result.stdout)
 end
 
+local function html_preview_document(html)
+  return table.concat({
+    "<!doctype html>",
+    "<html>",
+    "<head>",
+    '<meta charset="utf-8" />',
+    "<title>striked.nvim rich copy preview</title>",
+    "<style>",
+    "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; background: #f6f7f9; color: #111827; }",
+    "main { max-width: 960px; margin: 32px auto; padding: 24px 28px; background: #ffffff; border: 1px solid #d1d5db; border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08); }",
+    "p.notice { margin-top: 0; color: #374151; font-size: 14px; }",
+    "table { border-collapse: collapse; width: 100%; }",
+    "th, td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; vertical-align: top; }",
+    "th { background: #f3f4f6; }",
+    "pre, code { font-family: 'SFMono-Regular', Consolas, monospace; }",
+    "pre { background: #f3f4f6; padding: 12px; border-radius: 8px; overflow-x: auto; }",
+    "blockquote { margin-left: 0; padding-left: 16px; border-left: 4px solid #d1d5db; color: #4b5563; }",
+    "</style>",
+    "</head>",
+    "<body>",
+    "<main>",
+    "<p class=\"notice\"><strong>Manual fallback:</strong> copy this rendered content from the browser and paste it into Teams.</p>",
+    html,
+    "</main>",
+    "</body>",
+    "</html>",
+  }, "\n")
+end
+
+local function open_html_preview(html)
+  local path = vim.fn.tempname() .. ".html"
+  local document = html_preview_document(html)
+  local ok, err = pcall(vim.fn.writefile, vim.split(document, "\n", { plain = true, trimempty = false }), path)
+  if not ok then
+    return nil, string.format("striked.nvim could not write rich copy preview: %s", err)
+  end
+
+  local uri = vim.uri_from_fname(path)
+  if not pickers.open_url(uri) then
+    return nil, string.format("striked.nvim could not open rich copy preview: %s", path)
+  end
+
+  return {
+    path = path,
+    uri = uri,
+  }
+end
+
+local function rich_copy_browser_fallback(html, label)
+  local preview, err = open_html_preview(html)
+  if not preview then
+    error(err)
+  end
+
+  vim.notify(
+    string.format("striked.nvim opened %s preview in the browser for manual copy: %s", label, preview.path),
+    vim.log.levels.INFO
+  )
+
+  return {
+    backend = "browser",
+    browser_fallback = true,
+    preview_path = preview.path,
+    preview_uri = preview.uri,
+  }
+end
+
 local function notify_rich_clipboard(label, result)
   local mode
   if result.html_only then
@@ -931,10 +998,16 @@ local function copy_markdown_region(opts)
   })
 
   if not result then
-    error(err)
+    if not clipboard.copyq_running() then
+      result = rich_copy_browser_fallback(html, "markdown")
+    else
+      error(err)
+    end
   end
 
-  notify_rich_clipboard("markdown", result)
+  if not result.browser_fallback then
+    notify_rich_clipboard("markdown", result)
+  end
 
   return {
     source = source,
@@ -944,6 +1017,9 @@ local function copy_markdown_region(opts)
     backend = result.backend,
     html_only = result.html_only,
     downgraded = result.downgraded,
+    browser_fallback = result.browser_fallback,
+    preview_path = result.preview_path,
+    preview_uri = result.preview_uri,
   }
 end
 
@@ -972,10 +1048,16 @@ local function copy_clipboard_text(opts)
   })
 
   if not result then
-    error(err)
+    if not clipboard.copyq_running() then
+      result = rich_copy_browser_fallback(html, "clipboard markdown")
+    else
+      error(err)
+    end
   end
 
-  notify_rich_clipboard("clipboard markdown", result)
+  if not result.browser_fallback then
+    notify_rich_clipboard("clipboard markdown", result)
+  end
 
   return {
     source = source,
@@ -986,6 +1068,9 @@ local function copy_clipboard_text(opts)
     html_only = result.html_only,
     downgraded = result.downgraded,
     read_backend = read_result.backend,
+    browser_fallback = result.browser_fallback,
+    preview_path = result.preview_path,
+    preview_uri = result.preview_uri,
   }
 end
 
