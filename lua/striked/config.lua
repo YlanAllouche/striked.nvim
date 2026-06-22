@@ -30,6 +30,8 @@ local defaults = {
     journal_today = "<leader>jt",
     journal_tomorrow = "<leader>jn",
     journal_yesterday = "<leader>jy",
+    journal_next = "<leader>jN",
+    journal_previous = "<leader>jP",
     add_bookmark = "<leader>sa",
   },
   bookmark = {

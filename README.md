@@ -96,6 +96,8 @@ require("striked").setup({
     journal_today = "<leader>jt",
     journal_tomorrow = "<leader>jn",
     journal_yesterday = "<leader>jy",
+    journal_next = "<leader>jN",
+    journal_previous = "<leader>jP",
     add_bookmark = "<leader>sa",
   },
   picker = {
@@ -246,6 +248,8 @@ Imported recurring meeting occurrences append the occurrence date to the note ti
 - `<leader>jt` journal today
 - `<leader>jn` journal tomorrow
 - `<leader>jy` journal yesterday
+- `<leader>jN` journal next
+- `<leader>jP` journal previous
 - `<leader>sa` add bookmark
 
 Set `mappings.enabled = false` to disable them.
