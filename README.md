@@ -85,6 +85,7 @@ require("striked").setup({
   mappings = {
     enabled = true,
     bookmarks = "<leader>sb",
+    copy_markdown_rich = "<leader>jY",
     tasks_open = false,
     tasks_done = "<leader>sx",
     tasks_slash = "<leader>s/",
@@ -235,6 +236,7 @@ Imported recurring meeting occurrences append the occurrence date to the note ti
 ## Default Mappings
 
 - `<leader>sb` bookmarks
+- `<leader>jY` rich copy selected markdown, or whole buffer in normal mode
 - `<leader>s/` active tasks (` ` and `/` together)
 - `<leader>sx` done tasks
 - `<leader>s?` question tasks
@@ -359,6 +361,10 @@ Proof-of-concept commands:
 - `:'<,'>StrikedCopyMarkdownHtmlOnly` does the same conversion but publishes HTML only
 - `:StrikedClipboardRich` reads the current system clipboard text, converts it with `pandoc`, then republishes it as rich clipboard content while preserving the original plain-text payload
 - `:StrikedClipboardHtmlOnly` upgrades the current clipboard text to HTML only
+
+Default shortcut:
+
+- `<leader>jY` copies the visual selection as rich markdown in visual mode, or the whole current buffer in normal mode
 
 When rich clipboard publishing fails and `copyq` is not running, striked falls back to writing a temporary HTML preview file and opening it in the browser so the rendered content can still be copied manually into Teams.
 

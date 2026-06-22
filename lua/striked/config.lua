@@ -19,6 +19,7 @@ local defaults = {
   mappings = {
     enabled = true,
     bookmarks = "<leader>sb",
+    copy_markdown_rich = "<leader>jY",
     tasks_open = false,
     tasks_done = "<leader>sx",
     tasks_slash = "<leader>s/",

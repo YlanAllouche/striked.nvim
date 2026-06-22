@@ -28,6 +28,28 @@ local function set_mapping(mode, lhs, rhs, desc)
   table.insert(runtime.mappings, { mode = mode, lhs = lhs })
 end
 
+local function copy_markdown_rich_for_current_context(use_visual)
+  local buffer = vim.api.nvim_get_current_buf()
+
+  if use_visual then
+    local start_line = vim.fn.getpos("'<")[2]
+    local end_line = vim.fn.getpos("'>")[2]
+
+    return M.copy_markdown_rich({
+      buffer = buffer,
+      line1 = math.min(start_line, end_line),
+      line2 = math.max(start_line, end_line),
+      use_visual = true,
+    })
+  end
+
+  return M.copy_markdown_rich({
+    buffer = buffer,
+    line1 = 1,
+    line2 = vim.api.nvim_buf_line_count(buffer),
+  })
+end
+
 local function apply_mappings()
   local mappings = config.get().mappings or {}
 
@@ -40,6 +62,12 @@ local function apply_mappings()
   set_mapping("n", mappings.bookmarks, function()
     M.pick_bookmarks()
   end, "Striked bookmarks")
+  set_mapping("n", mappings.copy_markdown_rich, function()
+    copy_markdown_rich_for_current_context(false)
+  end, "Striked rich copy buffer")
+  set_mapping("x", mappings.copy_markdown_rich, function()
+    copy_markdown_rich_for_current_context(true)
+  end, "Striked rich copy selection")
   set_mapping("n", mappings.tasks_open, function()
     M.pick_active_tasks()
   end, "Striked active tasks")
