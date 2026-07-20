@@ -1158,6 +1158,36 @@ local function notify_rich_clipboard(label, result)
   vim.notify(string.format("striked.nvim copied %s using %s (%s)", label, result.backend, mode), vim.log.levels.INFO)
 end
 
+local function preview_markdown_html_source(source, opts, label)
+  if trim(source) == "" then
+    vim.notify(string.format("striked.nvim found no %s to preview", label), vim.log.levels.INFO)
+    return nil
+  end
+
+  local normalized = normalize_markdown_for_rich_clipboard(source, opts)
+  if trim(normalized.pandoc) == "" then
+    vim.notify(string.format("striked.nvim found no %s content after normalization", label), vim.log.levels.INFO)
+    return nil
+  end
+
+  local html = markdown_to_html(normalized.pandoc)
+  local preview, err = open_html_preview(html)
+  if not preview then
+    error(err)
+  end
+
+  vim.notify(string.format("striked.nvim opened %s preview in the browser: %s", label, preview.path), vim.log.levels.INFO)
+
+  return {
+    source = source,
+    normalized = normalized.text,
+    pandoc = normalized.pandoc,
+    html = html,
+    preview_path = preview.path,
+    preview_uri = preview.uri,
+  }
+end
+
 local function copy_markdown_region(opts)
   local source = buffer_range_text(opts)
   if trim(source) == "" then
@@ -1720,12 +1750,40 @@ function M.copy_markdown_html_only(opts)
   return copy_markdown_region(vim.tbl_extend("force", opts or {}, { html_only = true }))
 end
 
+function M.preview_markdown_html(opts)
+  opts = opts or {}
+
+  local source = buffer_range_text(opts)
+  local normalize_opts = vim.tbl_extend("force", vim.deepcopy(opts), {
+    render_frontmatter_table = is_full_buffer_region(opts),
+  })
+
+  return preview_markdown_html_source(source, normalize_opts, "markdown")
+end
+
 function M.upgrade_clipboard_rich(opts)
   return copy_clipboard_text(opts or {})
 end
 
 function M.upgrade_clipboard_html_only(opts)
   return copy_clipboard_text(vim.tbl_extend("force", opts or {}, { html_only = true }))
+end
+
+function M.preview_clipboard_html(opts)
+  opts = opts or {}
+
+  local source, read_result = clipboard.read_text()
+  if source == nil then
+    error(read_result)
+  end
+
+  local preview = preview_markdown_html_source(source, opts, "clipboard markdown")
+  if not preview then
+    return nil
+  end
+
+  preview.read_backend = read_result.backend
+  return preview
 end
 
 function M.prompt_build_log(opts)

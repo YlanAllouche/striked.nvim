@@ -248,12 +248,24 @@ local function register_commands()
     })
   end, { range = "%" })
 
+  vim.api.nvim_create_user_command("StrikedPreviewMarkdownHtml", function(command_opts)
+    M.preview_markdown_html({
+      buffer = vim.api.nvim_get_current_buf(),
+      line1 = command_opts.line1,
+      line2 = command_opts.line2,
+    })
+  end, { range = "%" })
+
   vim.api.nvim_create_user_command("StrikedClipboardRich", function()
     M.upgrade_clipboard_rich()
   end, {})
 
   vim.api.nvim_create_user_command("StrikedClipboardHtmlOnly", function()
     M.upgrade_clipboard_html_only()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedPreviewClipboardHtml", function()
+    M.preview_clipboard_html()
   end, {})
 
   runtime.commands_registered = true
@@ -448,12 +460,20 @@ function M.copy_markdown_html_only(opts)
   return actions.copy_markdown_html_only(opts)
 end
 
+function M.preview_markdown_html(opts)
+  return actions.preview_markdown_html(opts)
+end
+
 function M.upgrade_clipboard_rich(opts)
   return actions.upgrade_clipboard_rich(opts)
 end
 
 function M.upgrade_clipboard_html_only(opts)
   return actions.upgrade_clipboard_html_only(opts)
+end
+
+function M.preview_clipboard_html(opts)
+  return actions.preview_clipboard_html(opts)
 end
 
 function M.prompt_build_log(opts)
