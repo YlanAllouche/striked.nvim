@@ -37,6 +37,17 @@ local defaults = {
   bookmark = {
     default_position = "cursor",
   },
+  browser = {
+    timeout = 1500,
+    firefox = {
+      host = "127.0.0.1",
+      port = 9222,
+    },
+    chromium = {
+      host = "127.0.0.1",
+      port = 9223,
+    },
+  },
   picker = {
     telescope = {
       layout_strategy = "flex",
