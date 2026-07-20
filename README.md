@@ -85,14 +85,7 @@ require("striked").setup({
   },
   browser = {
     timeout = 1500,
-    firefox = {
-      host = "127.0.0.1",
-      port = 9222,
-    },
-    chromium = {
-      host = "127.0.0.1",
-      port = 9223,
-    },
+    ports = { 9222, 9223 },
   },
   rich_markdown = {
     teams_h1 = true,
@@ -128,10 +121,12 @@ require("striked").setup({
 
 Browser defaults:
 
-- Firefox BiDi is probed first at `127.0.0.1:9222`
-- Chromium CDP is probed second at `127.0.0.1:9223`
+- Browser ports default to `9222` and `9223`
+- striked probes those ports on `127.0.0.1`
+- if a port answers as Firefox BiDi, that backend is preferred
+- otherwise, if a port answers as Chromium CDP, that backend is used
 
-If your browsers use different ports, override `browser.firefox.port` and `browser.chromium.port` in setup.
+If your browsers use different ports, override `browser.ports` in setup.
 
 ## Supported Syntax
 

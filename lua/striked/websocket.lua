@@ -266,12 +266,16 @@ function M.connect(url, opts)
 
   tcp:read_start(function(err, chunk)
     if err then
+      if trim(tostring(err)) == "EOF" then
+        state.closed = true
+        return
+      end
+
       state.error = err
       return
     end
 
-    if chunk == nil then
-      state.closed = true
+    if type(chunk) ~= "string" or chunk == "" then
       return
     end
 

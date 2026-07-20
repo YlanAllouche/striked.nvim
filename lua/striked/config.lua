@@ -39,14 +39,7 @@ local defaults = {
   },
   browser = {
     timeout = 1500,
-    firefox = {
-      host = "127.0.0.1",
-      port = 9222,
-    },
-    chromium = {
-      host = "127.0.0.1",
-      port = 9223,
-    },
+    ports = { 9222, 9223 },
   },
   rich_markdown = {
     teams_h1 = true,

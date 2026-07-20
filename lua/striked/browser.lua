@@ -4,6 +4,8 @@ local websocket = require("striked.websocket")
 
 local M = {}
 
+local LOOPBACK_HOST = "127.0.0.1"
+
 local function trim(text)
   return vim.trim(text or "")
 end
@@ -12,15 +14,29 @@ local function browser_config()
   return config.get().browser or {}
 end
 
-local function settings_for(name, opts)
-  local configured = browser_config()[name] or {}
+local function browser_settings(opts)
   opts = opts or {}
 
+  local configured = browser_config()
+  local raw_ports = opts.ports or configured.ports or { 9222, 9223 }
+  local ports = {}
+  local seen = {}
+
+  if opts.port ~= nil then
+    raw_ports = { opts.port }
+  end
+
+  for _, value in ipairs(raw_ports) do
+    local port = tonumber(value)
+    if port and not seen[port] then
+      seen[port] = true
+      table.insert(ports, port)
+    end
+  end
+
   return {
-    name = name,
-    host = opts.host or configured.host or "127.0.0.1",
-    port = tonumber(opts.port or configured.port),
-    timeout = tonumber(opts.timeout or browser_config().timeout or 1500),
+    timeout = tonumber(opts.timeout or configured.timeout or 1500),
+    ports = ports,
   }
 end
 
@@ -44,12 +60,12 @@ local function normalize_tab(tab)
   return tab
 end
 
-local function firefox_ws_url(settings)
-  return string.format("ws://%s:%d/session", settings.host, settings.port)
+local function bidi_ws_url(port)
+  return string.format("ws://%s:%d/session", LOOPBACK_HOST, port)
 end
 
-local function with_firefox_session(settings, callback)
-  local client = websocket.connect(firefox_ws_url(settings), { timeout = settings.timeout })
+local function with_firefox_session(settings, port, callback)
+  local client = websocket.connect(bidi_ws_url(port), { timeout = settings.timeout })
   local ok, result = pcall(function()
     client:request("session.new", { capabilities = {} })
     return callback(client)
@@ -89,12 +105,13 @@ local function firefox_title(client, context_id)
   return nil
 end
 
-local function firefox_backend(settings)
+local function firefox_backend(settings, port)
   return {
     browser = "firefox",
     protocol = "bidi",
+    port = port,
     list_tabs = function()
-      return with_firefox_session(settings, function(client)
+      return with_firefox_session(settings, port, function(client)
         local tree = client:request("browsingContext.getTree", {})
         local tabs = {}
 
@@ -106,6 +123,7 @@ local function firefox_backend(settings)
             url = context.url or "",
             browser = "firefox",
             protocol = "bidi",
+            port = port,
           }))
         end
 
@@ -113,7 +131,7 @@ local function firefox_backend(settings)
       end)
     end,
     close_tabs = function(tab_ids)
-      return with_firefox_session(settings, function(client)
+      return with_firefox_session(settings, port, function(client)
         for _, tab_id in ipairs(tab_ids or {}) do
           client:request("browsingContext.close", {
             context = tab_id,
@@ -127,32 +145,32 @@ local function firefox_backend(settings)
   }
 end
 
-local function chromium_version(settings)
+local function chromium_version(settings, port)
   local response = http.request({
-    host = settings.host,
-    port = settings.port,
+    host = LOOPBACK_HOST,
+    port = port,
     path = "/json/version",
     timeout = settings.timeout,
   })
 
   if response.code ~= 200 then
-    error(string.format("striked.nvim Chromium discovery failed with HTTP %d", response.code))
+    error(string.format("striked.nvim Chromium discovery failed with HTTP %d on port %d", response.code, port))
   end
 
   return vim.json.decode(response.body)
 end
 
-local function chromium_browser_ws(settings)
-  local version = chromium_version(settings)
+local function chromium_browser_ws(settings, port)
+  local version = chromium_version(settings, port)
   local ws_url = trim(version.webSocketDebuggerUrl)
   if ws_url == "" then
-    error("striked.nvim Chromium discovery did not return a browser WebSocket URL")
+    error(string.format("striked.nvim Chromium discovery on port %d did not return a browser WebSocket URL", port))
   end
   return ws_url
 end
 
-local function with_chromium_client(settings, callback)
-  local client = websocket.connect(chromium_browser_ws(settings), { timeout = settings.timeout })
+local function with_chromium_client(settings, port, callback)
+  local client = websocket.connect(chromium_browser_ws(settings, port), { timeout = settings.timeout })
   local ok, result = pcall(callback, client)
   client:close()
 
@@ -163,12 +181,13 @@ local function with_chromium_client(settings, callback)
   return result
 end
 
-local function chromium_backend(settings)
+local function chromium_backend(settings, port)
   return {
     browser = "chromium",
     protocol = "cdp",
+    port = port,
     list_tabs = function()
-      return with_chromium_client(settings, function(client)
+      return with_chromium_client(settings, port, function(client)
         local result = client:request("Target.getTargets", {})
         local tabs = {}
 
@@ -180,6 +199,7 @@ local function chromium_backend(settings)
               url = info.url,
               browser = "chromium",
               protocol = "cdp",
+              port = port,
             }))
           end
         end
@@ -188,7 +208,7 @@ local function chromium_backend(settings)
       end)
     end,
     close_tabs = function(tab_ids)
-      return with_chromium_client(settings, function(client)
+      return with_chromium_client(settings, port, function(client)
         for _, tab_id in ipairs(tab_ids or {}) do
           client:request("Target.closeTarget", { targetId = tab_id })
         end
@@ -199,13 +219,59 @@ local function chromium_backend(settings)
   }
 end
 
-local function available_backends(opts)
-  opts = opts or {}
+local function detect_firefox_backend(settings, port)
+  local client = websocket.connect(bidi_ws_url(port), { timeout = settings.timeout })
+  local ok, result = pcall(function()
+    return client:request("session.status", {})
+  end)
+  client:close()
 
-  return {
-    firefox_backend(settings_for("firefox", opts.firefox or opts)),
-    chromium_backend(settings_for("chromium", opts.chromium or opts)),
-  }
+  if ok and result then
+    return firefox_backend(settings, port)
+  end
+
+  return nil, result
+end
+
+local function detect_chromium_backend(settings, port)
+  local ok, version = pcall(chromium_version, settings, port)
+  if not ok then
+    return nil, version
+  end
+
+  if trim(version.webSocketDebuggerUrl) == "" then
+    return nil, string.format("port %d does not expose a Chromium browser WebSocket URL", port)
+  end
+
+  return chromium_backend(settings, port)
+end
+
+local function available_backends(opts)
+  local settings = browser_settings(opts)
+  local firefox = {}
+  local chromium = {}
+  local failures = {}
+
+  for _, port in ipairs(settings.ports) do
+    local firefox_backend_match, firefox_err = detect_firefox_backend(settings, port)
+    if firefox_backend_match then
+      table.insert(firefox, firefox_backend_match)
+    else
+      local chromium_backend_match, chromium_err = detect_chromium_backend(settings, port)
+      if chromium_backend_match then
+        table.insert(chromium, chromium_backend_match)
+      else
+        table.insert(failures, string.format(
+          "port %d: firefox bidi: %s; chromium cdp: %s",
+          port,
+          trim(tostring(firefox_err)),
+          trim(tostring(chromium_err))
+        ))
+      end
+    end
+  end
+
+  return vim.list_extend(firefox, chromium), failures
 end
 
 local function probe_backend(backend)
@@ -218,38 +284,52 @@ local function probe_backend(backend)
 end
 
 function M.resolve_backend(opts)
-  local failures = {}
+  local backends, failures = available_backends(opts)
 
-  for _, backend in ipairs(available_backends(opts)) do
+  for _, backend in ipairs(backends) do
     local tabs = probe_backend(backend)
     if tabs then
       return backend
     end
-
-    table.insert(failures, backend.browser)
   end
 
-  error(string.format("striked.nvim could not talk to a ready browser via Firefox BiDi or Chromium CDP (%s)", table.concat(failures, ", ")))
+  error(string.format(
+    "striked.nvim could not detect a ready Firefox BiDi or Chromium CDP browser on ports [%s]%s",
+    table.concat(browser_settings(opts).ports, ", "),
+    #failures > 0 and (": " .. table.concat(failures, "; ")) or ""
+  ))
 end
 
 function M.list_tabs(opts)
-  local failures = {}
+  local backends, failures = available_backends(opts)
+  local runtime_failures = vim.deepcopy(failures)
 
-  for _, backend in ipairs(available_backends(opts)) do
+  for _, backend in ipairs(backends) do
     local tabs, err = probe_backend(backend)
     if tabs then
       return {
         browser = backend.browser,
         protocol = backend.protocol,
+        port = backend.port,
         tabs = tabs,
         close_tabs = backend.close_tabs,
       }
     end
 
-    table.insert(failures, string.format("%s: %s", backend.browser, trim(tostring(err))))
+    table.insert(runtime_failures, string.format(
+      "%s/%s on port %d: %s",
+      backend.browser,
+      backend.protocol,
+      backend.port,
+      trim(tostring(err))
+    ))
   end
 
-  error(string.format("striked.nvim could not talk to a ready browser via Firefox BiDi or Chromium CDP (%s)", table.concat(failures, "; ")))
+  error(string.format(
+    "striked.nvim could not detect a ready Firefox BiDi or Chromium CDP browser on ports [%s]%s",
+    table.concat(browser_settings(opts).ports, ", "),
+    #runtime_failures > 0 and (": " .. table.concat(runtime_failures, "; ")) or ""
+  ))
 end
 
 return M

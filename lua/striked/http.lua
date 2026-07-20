@@ -11,12 +11,7 @@ local function close_handle(handle)
   end
 end
 
-local function parse_response(raw)
-  local header_text, body = raw:match("^(.-)\r\n\r\n(.*)$")
-  if not header_text then
-    error("striked.nvim received an invalid HTTP response")
-  end
-
+local function parse_headers(header_text)
   local header_lines = vim.split(header_text, "\r\n", { plain = true, trimempty = false })
   local status_line = table.remove(header_lines, 1) or ""
   local code = tonumber(status_line:match("^HTTP/%d+%.%d+%s+(%d+)%s*"))
@@ -32,6 +27,16 @@ local function parse_response(raw)
     end
   end
 
+  return code, headers, status_line
+end
+
+local function parse_response(raw)
+  local header_text, body = raw:match("^(.-)\r\n\r\n(.*)$")
+  if not header_text then
+    error("striked.nvim received an invalid HTTP response")
+  end
+
+  local code, headers, status_line = parse_headers(header_text)
   return {
     code = code,
     headers = headers,
@@ -67,40 +72,79 @@ function M.request(opts)
 
   local tcp = uv.new_tcp()
   local state = {
-    connected = false,
     done = false,
     error = nil,
     raw = "",
+    content_length = nil,
+    headers_complete = false,
   }
 
-  tcp:connect(host, port, function(err)
-    if err then
-      state.error = err
-      state.done = true
+  local function fail(message)
+    state.error = message
+    state.done = true
+  end
+
+  local function update_completion()
+    if state.done or not state.headers_complete then
       return
     end
 
-    state.connected = true
+    local header_text, response_body = state.raw:match("^(.-)\r\n\r\n(.*)$")
+    if not header_text then
+      return
+    end
+
+    if state.content_length == nil then
+      local _, parsed_headers = parse_headers(header_text)
+      state.content_length = tonumber(parsed_headers["content-length"])
+      if state.content_length == nil then
+        fail(string.format("striked.nvim HTTP response from %s:%d did not include Content-Length", host, port))
+        return
+      end
+    end
+
+    if #response_body >= state.content_length then
+      state.done = true
+    end
+  end
+
+  tcp:connect(host, port, function(err)
+    if err then
+      fail(err)
+      return
+    end
+
     tcp:write(table.concat(request_lines, "\r\n"), function(write_err)
       if write_err then
-        state.error = write_err
-        state.done = true
+        fail(write_err)
       end
     end)
   end)
 
   tcp:read_start(function(err, chunk)
     if err then
-      state.error = err
-      state.done = true
+      if trim(tostring(err)) == "EOF" then
+        update_completion()
+        if not state.done then
+          fail(string.format("striked.nvim HTTP response from %s:%d closed before all bytes arrived", host, port))
+        end
+        return
+      end
+
+      fail(err)
       return
     end
 
-    if chunk then
-      state.raw = state.raw .. chunk
-    else
-      state.done = true
+    if type(chunk) ~= "string" or chunk == "" then
+      return
     end
+
+    state.raw = state.raw .. chunk
+    if not state.headers_complete and state.raw:find("\r\n\r\n", 1, true) then
+      state.headers_complete = true
+    end
+
+    update_completion()
   end)
 
   local ok = vim.wait(timeout, function()
