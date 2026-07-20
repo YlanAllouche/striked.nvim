@@ -9,13 +9,14 @@ A Neovim plugin for scanning markdown tasks and note metadata from a shared note
 - Parses markdown task-like lines such as `- [ ]`, `- [x]`, `- [/]`, `- [?]`, `- [n]`, and `- [@]`
 - Extracts inline metadata in the form `[field:: value]`
 - Exposes Lua APIs for scanning, status filters, field-value filters, focused items, and date-range log queries
-- Provides Telescope pickers for bookmarks, focused items, and status-based task views
+- Provides Telescope pickers for bookmarks, focused items, status-based task views, meetings, journals, and browser tabs
 - Adds prompt-driven note creation for topics, projects, sprints, meetings, and journals
 - Adds journal navigation helpers for today, tomorrow, yesterday, next existing, and previous existing notes
 - Imports manually exported Teams/Outlook `.ics` files into meeting notes
 - Supports inserting bookmarks and surfacing similar existing bookmarks first
-- Lets bookmark and focused Telescope pickers open URLs directly with `<C-o>`
-- Adds a proof-of-concept rich clipboard flow for markdown-to-Teams paste workflows
+- Lets bookmark, focused, and browser tab Telescope pickers open URLs directly with `<C-o>`
+- Adds a richer markdown clipboard flow for markdown-to-Teams paste workflows, including metadata badges and Teams-safe H1 rendering
+- Adds explicit HTML preview commands for current markdown and clipboard markdown
 
 ## Requirements
 
@@ -82,6 +83,21 @@ require("striked").setup({
     downloads_root = "~/Downloads",
     delete_ics_after_import = true,
   },
+  browser = {
+    timeout = 1500,
+    firefox = {
+      host = "127.0.0.1",
+      port = 9222,
+    },
+    chromium = {
+      host = "127.0.0.1",
+      port = 9223,
+    },
+  },
+  rich_markdown = {
+    teams_h1 = true,
+    render_metadata = true,
+  },
   mappings = {
     enabled = true,
     bookmarks = "<leader>sb",
@@ -109,6 +125,13 @@ require("striked").setup({
 ```
 
 `notes.root` can also be overridden per call with `opts.root`.
+
+Browser defaults:
+
+- Firefox BiDi is probed first at `127.0.0.1:9222`
+- Chromium CDP is probed second at `127.0.0.1:9223`
+
+If your browsers use different ports, override `browser.firefox.port` and `browser.chromium.port` in setup.
 
 ## Supported Syntax
 
@@ -211,6 +234,9 @@ Imported recurring meeting occurrences append the occurrence date to the note ti
 - `:StrikedTasksQuestion`
 - `:StrikedTasksN`
 - `:StrikedFocused`
+- `:StrikedMeetings`
+- `:StrikedJournals`
+- `:StrikedBrowserTabs`
 - `:StrikedFocusedPrint`
 - `:StrikedAddBookmark`
 - `:StrikedNewTopic`
@@ -230,6 +256,8 @@ Imported recurring meeting occurrences append the occurrence date to the note ti
 - `:'<,'>StrikedCopyMarkdownHtmlOnly`
 - `:StrikedClipboardRich`
 - `:StrikedClipboardHtmlOnly`
+- `:'<,'>StrikedPreviewMarkdownHtml`
+- `:StrikedPreviewClipboardHtml`
 
 `StrikedTasksOpen` and `StrikedTasksSlash` both open the combined active-task view for statuses ` ` and `/`.
 
@@ -256,7 +284,7 @@ Set `mappings.enabled = false` to disable them.
 
 ## Telescope URL Action
 
-In the bookmarks and focused pickers, press `<C-o>` to open the selected entry's parsed `url` metadata.
+In the bookmarks, focused, and browser tabs pickers, press `<C-o>` to open the selected entry's parsed `url` metadata.
 
 Open order:
 
@@ -264,6 +292,32 @@ Open order:
 - `$BROWSER` if set
 - `xdg-open` on Linux
 - `start` via `cmd.exe` on Windows
+
+## Meetings And Journals Pickers
+
+- `:StrikedMeetings` lists meeting notes as `date | title | path`
+- `:StrikedJournals` lists journal pages as `date | path`
+- selecting an entry opens the matching note
+
+## Browser Tabs Picker
+
+`:StrikedBrowserTabs` probes browsers in this order:
+
+- Firefox over WebDriver BiDi
+- Chromium over CDP
+
+Picker actions:
+
+- `Enter` inserts the selected tab, or all multi-selected tabs, as bookmarks in the current buffer and keeps the browser tabs open
+- `<C-d>` inserts the selected tab(s) as bookmarks and then closes those browser tabs
+- `<C-o>` opens the selected tab URL locally
+
+Inserted browser bookmarks include:
+
+- `[@]` bookmark status
+- title
+- `url`
+- today’s `[date:: YYYY-MM-DD]`
 
 ## Lua API
 
@@ -279,12 +333,17 @@ striked.active_tasks(opts)
 striked.done_tasks(opts)
 striked.items_by_field("focus", "true", opts)
 striked.focused(opts)
+striked.meetings(opts)
+striked.journals(opts)
 striked.items_between_dates("2026-06-01", "2026-06-30", opts)
 striked.log_items("2026-06-01", "2026-06-30", opts)
 striked.pick_bookmarks(opts)
 striked.pick_active_tasks(opts)
 striked.pick_done_tasks(opts)
 striked.pick_focused(opts)
+striked.pick_meetings(opts)
+striked.pick_journals(opts)
+striked.pick_browser_tabs(opts)
 striked.find_similar_bookmarks({ title = "Example", url = "https://example.com" }, opts)
 striked.add_bookmark({ title = "Example", url = "https://example.com" })
 striked.prompt_add_bookmark(opts)
@@ -303,8 +362,10 @@ striked.build_log({ startDate = "2026-06-01", endDate = "2026-06-30" })
 striked.print_focused(opts)
 striked.copy_markdown_rich({ line1 = 1, line2 = 20 })
 striked.copy_markdown_html_only({ line1 = 1, line2 = 20 })
+striked.preview_markdown_html({ line1 = 1, line2 = 20 })
 striked.upgrade_clipboard_rich()
 striked.upgrade_clipboard_html_only()
+striked.preview_clipboard_html()
 ```
 
 ## Meeting Import
@@ -375,10 +436,30 @@ When rich clipboard publishing fails and `copyq` is not running, striked falls b
 Current normalization before `pandoc`:
 
 - strips YAML frontmatter
-- strips inline `[field:: value]` metadata
-- maps custom task states such as `- [ ]`, `- [x]`, `- [/]`, `- [?]`, and `- [n]` to readable emoji bullets, with done states rendered as strikethrough text
-- converts bookmark items such as `- [@] Title [url:: ...]` to regular markdown links
+- renders inline metadata as emoji badges by default for tags, dates, completion, focus, and active state
+- maps custom task states such as `- [ ]`, `- [x]`, `- [-]`, `- [/]`, `- [?]`, `- [n]`, `- [l]`, and `- [R]` to emoji bullets, with done-like states rendered as strikethrough text for the task title only
+- converts bookmark items such as `- [@] Title [url:: ...]` to `🔖` links while preserving rendered metadata badges
 - when copying the whole buffer, renders YAML frontmatter as a metadata table before the body content
+- when `rich_markdown.teams_h1 = true`, renders `# H1` lines as bold `🔷` paragraphs instead of HTML `<h1>` headings for better Teams paste results
+
+Default task symbols:
+
+- ` ` -> `📌`
+- `x` -> `✅`
+- `-` -> `🛑`
+- `/` -> `🚧`
+- `l` -> `📜`
+- `R` -> `🏆`
+- `?` -> `❓`
+- `n` -> `📝`
+- `@` -> `🔖`
+
+Set `rich_markdown.render_metadata = false` if you want the older stripped-metadata behavior.
+
+## HTML Preview
+
+- `:'<,'>StrikedPreviewMarkdownHtml` renders the selected range, or the whole buffer, into a temporary HTML file and opens it in the browser
+- `:StrikedPreviewClipboardHtml` reads clipboard text, renders it as markdown HTML, and opens that preview in the browser
 
 If a dual-format clipboard backend is unavailable, the default rich-copy commands report that explicitly. Use the `HtmlOnly` variants when you intentionally want an HTML-only clipboard payload.
 
