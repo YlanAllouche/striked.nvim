@@ -1,5 +1,6 @@
 local config = require("striked.config")
 local actions = require("striked.actions")
+local documents = require("striked.documents")
 local pickers = require("striked.pickers")
 local query = require("striked.query")
 local scanner = require("striked.scanner")
@@ -151,6 +152,14 @@ local function register_commands()
     M.pick_focused()
   end, {})
 
+  vim.api.nvim_create_user_command("StrikedMeetings", function()
+    M.pick_meetings()
+  end, {})
+
+  vim.api.nvim_create_user_command("StrikedJournals", function()
+    M.pick_journals()
+  end, {})
+
   vim.api.nvim_create_user_command("StrikedAddBookmark", function()
     M.prompt_add_bookmark()
   end, {})
@@ -287,6 +296,14 @@ function M.focused(opts)
   return query.focused(opts)
 end
 
+function M.meetings(opts)
+  return documents.meetings(opts)
+end
+
+function M.journals(opts)
+  return documents.journals(opts)
+end
+
 function M.items_between_dates(start_date, end_date, opts)
   return query.items_between_dates(start_date, end_date, opts)
 end
@@ -313,6 +330,14 @@ end
 
 function M.pick_focused(opts)
   return pickers.pick_focused(opts)
+end
+
+function M.pick_meetings(opts)
+  return pickers.pick_meetings(opts)
+end
+
+function M.pick_journals(opts)
+  return pickers.pick_journals(opts)
 end
 
 function M.find_similar_bookmarks(target, opts)

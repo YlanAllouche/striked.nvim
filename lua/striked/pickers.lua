@@ -1,4 +1,5 @@
 local config = require("striked.config")
+local documents = require("striked.documents")
 local query = require("striked.query")
 
 local M = {}
@@ -48,6 +49,14 @@ local function searchable_text(item)
   }, " ")
 end
 
+local function default_ordinal(item, opts)
+  if type(opts.ordinal) == "function" then
+    return tostring(opts.ordinal(item) or "")
+  end
+
+  return searchable_text(item)
+end
+
 local function compact_details(item, opts)
   local details = {}
 
@@ -75,6 +84,10 @@ local function compact_details(item, opts)
 end
 
 local function display_text(item, opts)
+  if type(opts.display) == "function" then
+    return opts.display(item)
+  end
+
   local location = string.format("%s:%d", item.relative_path or item.path or "", item.lnum or 0)
   local details = compact_details(item, opts)
 
@@ -175,7 +188,7 @@ function M.pick_items(items, opts)
         return {
           value = item,
           display = display_text(item, opts),
-          ordinal = searchable_text(item),
+          ordinal = default_ordinal(item, opts),
           filename = item.path,
           lnum = item.lnum,
           col = item.col or 1,
@@ -260,6 +273,36 @@ function M.pick_focused(opts)
     kind = "item",
     show_urls = true,
     prompt_title = opts.prompt_title or "Striked Focused",
+  }))
+end
+
+function M.pick_meetings(opts)
+  opts = opts or {}
+  return M.pick_items(documents.meetings(opts), vim.tbl_extend("force", opts, {
+    prompt_title = opts.prompt_title or "Striked Meetings",
+    display = function(item)
+      return join_non_empty({
+        item.date,
+        item.title,
+        item.relative_path,
+      }, " | ")
+    end,
+    ordinal = function(item)
+      return table.concat({ item.date or "", item.title or "", item.relative_path or item.path or "" }, " ")
+    end,
+  }))
+end
+
+function M.pick_journals(opts)
+  opts = opts or {}
+  return M.pick_items(documents.journals(opts), vim.tbl_extend("force", opts, {
+    prompt_title = opts.prompt_title or "Striked Journals",
+    display = function(item)
+      return join_non_empty({ item.date, item.relative_path }, " | ")
+    end,
+    ordinal = function(item)
+      return table.concat({ item.date or "", item.relative_path or item.path or "" }, " ")
+    end,
   }))
 end
 
