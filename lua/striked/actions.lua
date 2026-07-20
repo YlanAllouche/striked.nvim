@@ -12,16 +12,6 @@ local templates = require("striked.templates")
 local M = {}
 local uv = vim.uv or vim.loop
 local attendee_category_order = { "required", "optional", "chair", "nonParticipant", "tentative", "declined", "delegated", "other" }
-local rich_task_symbols = {
-  [" "] = "📌",
-  ["x"] = "✅",
-  ["-"] = "✅",
-  ["l"] = "📜",
-  ["R"] = "🏆",
-  ["/"] = "🚧",
-  ["?"] = "❓",
-  ["n"] = "📝",
-}
 local rich_task_done_statuses = {
   ["x"] = true,
   ["-"] = true,
@@ -39,6 +29,21 @@ local legacy_meeting_scalar_keys = {
 
 local function trim(text)
   return vim.trim(text or "")
+end
+
+local function rich_markdown_options(opts)
+  local configured = vim.deepcopy(config.get().rich_markdown or {})
+  local effective = vim.tbl_deep_extend("force", configured, vim.deepcopy(opts.rich_markdown or {}))
+
+  if opts.teams_h1 ~= nil then
+    effective.teams_h1 = opts.teams_h1 == true
+  end
+
+  if opts.render_metadata ~= nil then
+    effective.render_metadata = opts.render_metadata == true
+  end
+
+  return effective
 end
 
 local function system_result(args, stdin)
@@ -677,7 +682,148 @@ local function markdown_link(title, url)
   return string.format("[%s](<%s>)", label, target)
 end
 
-local function escape_html(text)
+local escape_html
+
+local function split_metadata_values(values)
+  local items = {}
+
+  for _, value in ipairs(values or {}) do
+    for part in tostring(value):gmatch("[^,]+") do
+      local entry = trim(part)
+      if entry ~= "" then
+        table.insert(items, entry)
+      end
+    end
+  end
+
+  return items
+end
+
+local function first_metadata_value(item, key)
+  local values = item.metadata and item.metadata[key] or nil
+  return values and values[1] or nil
+end
+
+local function truthy_metadata(value)
+  local normalized = trim(value):lower()
+  if normalized == "true" or normalized == "yes" or normalized == "y" or normalized == "1" then
+    return true
+  end
+
+  if normalized == "false" or normalized == "no" or normalized == "n" or normalized == "0" then
+    return false
+  end
+
+  return nil
+end
+
+local function metadata_badge_html(text)
+  return string.format(
+    '<span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;background:#eef2ff;color:#1f2937;font-weight:600;">%s</span>',
+    escape_html(text)
+  )
+end
+
+local function metadata_badges(item, rich_opts)
+  local metadata_opts = rich_opts.metadata or {}
+  if rich_opts.render_metadata == false then
+    return {}, {}
+  end
+
+  local text_badges = {}
+  local pandoc_badges = {}
+
+  local function add_badge(text)
+    if text == nil or text == "" then
+      return
+    end
+
+    table.insert(text_badges, text)
+    table.insert(pandoc_badges, metadata_badge_html(text))
+  end
+
+  if metadata_opts.show_tags ~= false then
+    local tags = {}
+    for _, value in ipairs(split_metadata_values(item.metadata and item.metadata.tag or {})) do
+      table.insert(tags, value)
+    end
+    for _, value in ipairs(split_metadata_values(item.metadata and item.metadata.tags or {})) do
+      table.insert(tags, value)
+    end
+    for _, value in ipairs(item.normalized and item.normalized.projects or {}) do
+      table.insert(tags, value)
+    end
+    for _, value in ipairs(item.normalized and item.normalized.topics or {}) do
+      table.insert(tags, value)
+    end
+
+    if #tags > 0 then
+      add_badge(string.format("%s %s", metadata_opts.tag_emoji or "🏷️", table.concat(tags, ", ")))
+    end
+  end
+
+  if metadata_opts.show_date ~= false and item.normalized and item.normalized.date then
+    add_badge(string.format("%s %s", metadata_opts.date_emoji or "📅", item.normalized.date))
+  end
+
+  if metadata_opts.show_completion ~= false and item.normalized and item.normalized.completion then
+    add_badge(string.format("%s %s", metadata_opts.completion_emoji or "✅", item.normalized.completion.raw))
+  end
+
+  if metadata_opts.show_focus ~= false then
+    local focus_value = truthy_metadata(first_metadata_value(item, "focus") or "")
+    if focus_value ~= nil then
+      add_badge(string.format(
+        "%s focus",
+        focus_value and (metadata_opts.focus_true_emoji or "🔥") or (metadata_opts.focus_false_emoji or "💤")
+      ))
+    end
+
+    local active_value = truthy_metadata(first_metadata_value(item, "active") or "")
+    if active_value ~= nil then
+      add_badge(string.format(
+        "%s active",
+        active_value and (metadata_opts.active_true_emoji or "🟢") or (metadata_opts.active_false_emoji or "⚪")
+      ))
+    end
+  end
+
+  return text_badges, pandoc_badges
+end
+
+local function teams_h1(line, rich_opts)
+  local title = line:match("^#%s+(.+)$")
+  if not title or rich_opts.teams_h1 == false then
+    return nil
+  end
+
+  local plain = string.format("🔷 %s", trim(title))
+  return {
+    text = plain,
+    pandoc = string.format("**%s**", plain),
+  }
+end
+
+local function join_rendered_parts(prefix, symbol, body, suffix)
+  local parts = { prefix }
+
+  if symbol and symbol ~= "" then
+    table.insert(parts, symbol)
+  end
+
+  if body and body ~= "" then
+    table.insert(parts, body)
+  end
+
+  local rendered = table.concat(parts, " ")
+  if suffix and suffix ~= "" then
+    rendered = rendered .. suffix
+  end
+
+  return rendered
+end
+
+escape_html = function(text)
   local escaped = tostring(text or "")
   escaped = escaped:gsub("&", "&amp;")
   escaped = escaped:gsub("<", "&lt;")
@@ -797,37 +943,71 @@ local function render_frontmatter_html_table(lines)
   return rendered
 end
 
-local function normalize_markdown_line(line)
+local function normalize_markdown_line(line, rich_opts)
+  local heading = teams_h1(line, rich_opts)
+  if heading then
+    return heading
+  end
+
   local item = parser.parse_line(line)
   if not item then
-    return strip_inline_metadata_fields(line)
+    local stripped = rich_opts.render_metadata == false and strip_inline_metadata_fields(line) or line
+    return {
+      text = stripped,
+      pandoc = stripped,
+    }
   end
 
-  local prefix = string.format("%s%s ", item.indent or "", item.marker or "-")
+  local prefix = string.format("%s%s", item.indent or "", item.marker or "-")
   local title = trim(item.title)
+  local task_symbols = rich_opts.task_symbols or {}
+  local text_badges, pandoc_badges = metadata_badges(item, rich_opts)
+  local text_suffix = #text_badges > 0 and (" " .. table.concat(text_badges, " ")) or ""
+  local pandoc_suffix = #pandoc_badges > 0 and (" " .. table.concat(pandoc_badges, " ")) or ""
 
   if item.status == "@" then
-    return prefix .. markdown_link(title, item.url)
+    local symbol = task_symbols[item.status]
+    local link = markdown_link(title, item.url)
+    local text = item.url and item.url ~= "" and string.format("%s (%s)", title, item.url) or title
+
+    return {
+      text = join_rendered_parts(prefix, symbol, trim(text), text_suffix),
+      pandoc = join_rendered_parts(prefix, symbol, link, pandoc_suffix),
+    }
   end
 
-  local symbol = rich_task_symbols[item.status]
+  local symbol = task_symbols[item.status]
   if symbol then
     if title == "" then
-      return prefix .. symbol
+      return {
+        text = join_rendered_parts(prefix, symbol, nil, text_suffix),
+        pandoc = join_rendered_parts(prefix, symbol, nil, pandoc_suffix),
+      }
     end
 
+    local plain_title = title
+    local pandoc_title = title
     if rich_task_done_statuses[item.status] then
-      title = string.format("~~%s~~", title)
+      plain_title = string.format("~~%s~~", title)
+      pandoc_title = string.format("~~%s~~", title)
     end
 
-    return string.format("%s%s %s", prefix, symbol, title)
+    return {
+      text = join_rendered_parts(prefix, symbol, plain_title, text_suffix),
+      pandoc = join_rendered_parts(prefix, symbol, pandoc_title, pandoc_suffix),
+    }
   end
 
-  return prefix .. title
+  local plain = join_rendered_parts(prefix, nil, title, "")
+  return {
+    text = plain,
+    pandoc = plain,
+  }
 end
 
-local function normalize_markdown_body_lines(body_lines)
-  local normalized = {}
+local function normalize_markdown_body_lines(body_lines, rich_opts)
+  local text_lines = {}
+  local pandoc_lines = {}
   local fence_marker
 
   for _, line in ipairs(body_lines or {}) do
@@ -839,22 +1019,25 @@ local function normalize_markdown_body_lines(body_lines)
         fence_marker = nil
       end
 
-      table.insert(normalized, line)
+      table.insert(text_lines, line)
+      table.insert(pandoc_lines, line)
     elseif fence_marker then
-      table.insert(normalized, line)
+      table.insert(text_lines, line)
+      table.insert(pandoc_lines, line)
     else
-      table.insert(normalized, normalize_markdown_line(line))
+      local normalized = normalize_markdown_line(line, rich_opts)
+      table.insert(text_lines, normalized.text)
+      table.insert(pandoc_lines, normalized.pandoc)
     end
   end
 
-  return normalized
+  return text_lines, pandoc_lines
 end
 
 local function normalize_markdown_for_rich_clipboard(text, opts)
   local frontmatter_lines, body_lines, has_frontmatter = frontmatter.split(split_text_lines(text))
-  local normalized_body = normalize_markdown_body_lines(body_lines)
-  local plain_lines = vim.deepcopy(normalized_body)
-  local pandoc_lines = vim.deepcopy(normalized_body)
+  local rich_opts = rich_markdown_options(opts or {})
+  local plain_lines, pandoc_lines = normalize_markdown_body_lines(body_lines, rich_opts)
 
   if opts and opts.render_frontmatter_table == true and has_frontmatter then
     plain_lines = vim.list_extend(render_frontmatter_markdown_table(frontmatter_lines), plain_lines)
@@ -982,9 +1165,10 @@ local function copy_markdown_region(opts)
     return nil
   end
 
-  local normalized = normalize_markdown_for_rich_clipboard(source, {
+  local normalize_opts = vim.tbl_extend("force", vim.deepcopy(opts), {
     render_frontmatter_table = is_full_buffer_region(opts),
   })
+  local normalized = normalize_markdown_for_rich_clipboard(source, normalize_opts)
   if trim(normalized.text) == "" then
     vim.notify("striked.nvim found no markdown content after normalization", vim.log.levels.INFO)
     return nil
@@ -1034,7 +1218,7 @@ local function copy_clipboard_text(opts)
     return nil
   end
 
-  local normalized = normalize_markdown_for_rich_clipboard(source)
+  local normalized = normalize_markdown_for_rich_clipboard(source, opts)
   if trim(normalized.text) == "" then
     vim.notify("striked.nvim found no markdown content after normalization", vim.log.levels.INFO)
     return nil
