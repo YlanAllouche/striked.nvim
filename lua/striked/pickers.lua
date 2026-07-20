@@ -1,3 +1,4 @@
+local browser = require("striked.browser")
 local config = require("striked.config")
 local documents = require("striked.documents")
 local query = require("striked.query")
@@ -104,6 +105,18 @@ local function open_location(entry)
   vim.cmd("normal! zz")
 end
 
+local function selected_entries(telescope, prompt_bufnr)
+  local picker = telescope.action_state.get_current_picker(prompt_bufnr)
+  local selected = picker and picker:get_multi_selection() or {}
+
+  if #selected > 0 then
+    return selected
+  end
+
+  local current = telescope.action_state.get_selected_entry()
+  return current and { current } or {}
+end
+
 local function browser_command(url)
   local sysname = (uv.os_uname() or {}).sysname
   if sysname == "Darwin" then
@@ -178,7 +191,8 @@ function M.pick_items(items, opts)
 
   local telescope = telescope_deps()
   local picker_config = config.get().picker.telescope or {}
-  local previewer = picker_config.preview == false and false or telescope.values.grep_previewer(opts)
+  local preview_enabled = picker_config.preview ~= false and opts.preview ~= false
+  local previewer = preview_enabled and telescope.values.grep_previewer(opts) or false
 
   telescope.pickers.new(opts, {
     prompt_title = opts.prompt_title or "Striked",
@@ -225,6 +239,13 @@ function M.pick_items(items, opts)
 
         map("i", open_url_mapping, open_selected_url)
         map("n", open_url_mapping, open_selected_url)
+      end
+
+      if type(opts.attach_mappings) == "function" then
+        local mapped = opts.attach_mappings(prompt_bufnr, map, telescope)
+        if mapped == false then
+          return false
+        end
       end
 
       return true
@@ -302,6 +323,79 @@ function M.pick_journals(opts)
     end,
     ordinal = function(item)
       return table.concat({ item.date or "", item.relative_path or item.path or "" }, " ")
+    end,
+  }))
+end
+
+function M.pick_browser_tabs(opts)
+  opts = opts or {}
+
+  local tab_result = browser.list_tabs(opts)
+  if #tab_result.tabs == 0 then
+    vim.notify("striked.nvim could not find any open browser tabs", vim.log.levels.INFO)
+    return tab_result
+  end
+
+  return M.pick_items(tab_result.tabs, vim.tbl_extend("force", opts, {
+    prompt_title = opts.prompt_title or string.format("Striked Browser Tabs [%s/%s]", tab_result.browser, tab_result.protocol),
+    show_urls = true,
+    preview = false,
+    display = function(item)
+      return join_non_empty({
+        string.format("[%s] %s", item.browser, item.title),
+        short_text(item.url, 72),
+      }, " | ")
+    end,
+    ordinal = function(item)
+      return table.concat({ item.browser or "", item.title or "", item.url or "" }, " ")
+    end,
+    attach_mappings = function(prompt_bufnr, map, telescope)
+      local function insert_selected(close_tabs)
+        local entries = selected_entries(telescope, prompt_bufnr)
+        if #entries == 0 then
+          return
+        end
+
+        telescope.actions.close(prompt_bufnr)
+
+        local striked = require("striked")
+        local dates = require("striked.dates")
+        local row = vim.api.nvim_win_get_cursor(0)[1]
+        local ids = {}
+
+        for index, entry in ipairs(entries) do
+          table.insert(ids, entry.value.id)
+          striked.add_bookmark({
+            title = entry.value.title,
+            url = entry.value.url,
+            date = dates.today(),
+            lnum = row + index - 1,
+          })
+        end
+
+        if close_tabs then
+          tab_result.close_tabs(ids)
+        end
+
+        vim.notify(string.format(
+          "striked.nvim inserted %d browser bookmark(s)%s",
+          #entries,
+          close_tabs and " and closed the selected tabs" or ""
+        ), vim.log.levels.INFO)
+      end
+
+      telescope.actions.select_default:replace(function()
+        insert_selected(false)
+      end)
+
+      map("i", "<C-d>", function()
+        insert_selected(true)
+      end)
+      map("n", "<C-d>", function()
+        insert_selected(true)
+      end)
+
+      return true
     end,
   }))
 end

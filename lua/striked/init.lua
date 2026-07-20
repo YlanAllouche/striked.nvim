@@ -160,6 +160,10 @@ local function register_commands()
     M.pick_journals()
   end, {})
 
+  vim.api.nvim_create_user_command("StrikedBrowserTabs", function()
+    M.pick_browser_tabs()
+  end, {})
+
   vim.api.nvim_create_user_command("StrikedAddBookmark", function()
     M.prompt_add_bookmark()
   end, {})
@@ -338,6 +342,10 @@ end
 
 function M.pick_journals(opts)
   return pickers.pick_journals(opts)
+end
+
+function M.pick_browser_tabs(opts)
+  return pickers.pick_browser_tabs(opts)
 end
 
 function M.find_similar_bookmarks(target, opts)
